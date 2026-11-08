@@ -22,25 +22,10 @@ pub struct Settings {
     pub grabber: Grabber,
     pub antivirus: Antivirus,
     pub video: Video,
-    pub hugging_face: HuggingFace,
     pub shortcuts: BTreeMap<String, String>,
     pub onboarding_done: bool,
     /// The app version whose "What's new" the user has seen ("" before 1.1.0).
     pub last_seen_version: String,
-}
-
-/// Downloading models from Hugging Face (see `crate::huggingface`).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(default, rename_all = "camelCase")]
-pub struct HuggingFace {
-    /// The server: "" = `HF_ENDPOINT` if it is set, else huggingface.co. Otherwise a URL like
-    /// `https://hf-mirror.com`.
-    pub endpoint: String,
-    /// Access token for gated and private models ("" = the one `hf auth login` saved, if any).
-    /// Sent only to the server above, never to the download servers it redirects to.
-    pub token: String,
-    /// Where models go, each in `<owner>/<name>` below it ("" = `Models` in the download folder).
-    pub folder: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -77,7 +62,7 @@ impl Default for General {
             start_minimized: false,
             close_to_tray: true,
             show_capture_dialog: true,
-            show_progress_window: false,
+            show_progress_window: true,
             show_completion_dialog: true,
             notifications: true,
             confirm_delete: true,

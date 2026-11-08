@@ -1,10 +1,10 @@
-//! Part-file creation, pre-allocation and positioned I/O.
+//! Sparse part-file creation and positioned I/O.
 //!
 //! * Windows: the file is marked sparse (`FSCTL_SET_SPARSE`) before `set_len`, so writes at far
-//!   offsets do not trigger NTFS zero-filling from the valid-data length. The flag is cleared
-//!   (best effort) once the file is complete.
-//! * Linux: `fallocate` reserves the space (falls back to `set_len` when unsupported).
-//! * Elsewhere: `set_len` (sparse on APFS/most Unix file systems).
+//!   offsets do not trigger NTFS zero-filling from the valid-data length. Keep that flag when
+//!   closing, including on pause/error: clearing it materializes every unwritten hole (#70).
+//! * Unix: `set_len` creates holes rather than reserving the whole download on disk.
+//!   Free space is checked separately; actual writes can still report an out-of-space error.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -26,6 +26,7 @@ pub(crate) fn create_part_file(
         opts.create(true).truncate(true);
     }
     let file = opts.open(path)?;
+    prepare_sparse(&file);
     if let Some(size) = size.filter(|s| *s > 0) {
         allocate(&file, size)?;
     }
@@ -34,40 +35,35 @@ pub(crate) fn create_part_file(
 
 /// Opens an existing part file for resuming.
 pub(crate) fn open_part_file(path: &Path) -> io::Result<File> {
-    OpenOptions::new().read(true).write(true).open(path)
+    let file = OpenOptions::new().read(true).write(true).open(path)?;
+    // Repair partial files paused by older versions, which cleared their sparse flag.
+    prepare_sparse(&file);
+    Ok(file)
 }
 
 fn allocate(file: &File, size: u64) -> io::Result<()> {
-    #[cfg(windows)]
-    {
-        // Best effort: FAT/exFAT do not support sparse files; set_len still works there.
-        let _ = set_sparse(file, true);
-        file.set_len(size)
-    }
-    #[cfg(target_os = "linux")]
-    {
-        use rustix::fs::{FallocateFlags, fallocate};
-        match fallocate(file, FallocateFlags::empty(), 0, size) {
-            Ok(()) => Ok(()),
-            Err(e) if e == rustix::io::Errno::NOSPC => Err(io::Error::from(e)),
-            // EOPNOTSUPP (tmpfs on old kernels, NFS, FAT …): fall back to a sparse set_len.
-            Err(_) => file.set_len(size),
-        }
-    }
-    #[cfg(not(any(windows, target_os = "linux")))]
-    {
-        file.set_len(size)
-    }
+    file.set_len(size)
 }
 
-/// Marks (or unmarks) a file as sparse on NTFS/ReFS.
+fn prepare_sparse(file: &File) {
+    #[cfg(windows)]
+    if let Err(e) = set_sparse(file) {
+        // Some volumes (FAT/exFAT) do not support sparse files. Make the fallback visible
+        // in diagnostics rather than silently claiming that writes will stay sparse.
+        tracing::warn!("could not mark the download file sparse: {e}");
+    }
+    #[cfg(not(windows))]
+    let _ = file;
+}
+
+/// Marks a file as sparse on NTFS/ReFS. Never clear it on a partial file.
 #[cfg(windows)]
-pub(crate) fn set_sparse(file: &File, sparse: bool) -> io::Result<()> {
+fn set_sparse(file: &File) -> io::Result<()> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::System::IO::DeviceIoControl;
     use windows_sys::Win32::System::Ioctl::{FILE_SET_SPARSE_BUFFER, FSCTL_SET_SPARSE};
 
-    let input = FILE_SET_SPARSE_BUFFER { SetSparse: sparse };
+    let input = FILE_SET_SPARSE_BUFFER { SetSparse: true };
     let mut returned = 0u32;
     // SAFETY: the handle is valid for the lifetime of `file`; the input buffer is a properly
     // initialized FILE_SET_SPARSE_BUFFER of the declared size; no output buffer is used and the
@@ -88,18 +84,6 @@ pub(crate) fn set_sparse(file: &File, sparse: bool) -> io::Result<()> {
         Err(io::Error::last_os_error())
     } else {
         Ok(())
-    }
-}
-
-/// Clears the sparse flag after completion (cosmetic; best effort).
-pub(crate) fn finish_file(file: &File) {
-    #[cfg(windows)]
-    {
-        let _ = set_sparse(file, false);
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = file;
     }
 }
 
@@ -236,7 +220,6 @@ mod tests {
         assert_eq!(&buf, b"tail");
         read_exact_at(&f, &mut buf, 0).unwrap();
         assert_eq!(&buf, b"head");
-        finish_file(&f);
         f.sync_all().unwrap();
         drop(f);
         let fin = dir.path().join("x");
@@ -248,6 +231,26 @@ mod tests {
         std::fs::write(dir.path().join("z"), b"1").unwrap();
         assert!(rename_no_replace(&dir.path().join("z"), &other).unwrap());
         assert!(other.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sizing_and_resuming_a_large_file_preserves_holes() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large.prismpart");
+        let size = 1 << 30;
+        let file = create_part_file(&path, Some(size), true).unwrap();
+        write_all_at(&file, b"head", 0).unwrap();
+        write_all_at(&file, b"tail", size - 4).unwrap();
+        file.sync_all().unwrap();
+        drop(file);
+        let file = open_part_file(&path).unwrap();
+        assert_eq!(file.metadata().unwrap().len(), size);
+        assert!(file.metadata().unwrap().blocks() * 512 < 1 << 20);
+        let mut hole = [1u8; 4];
+        read_exact_at(&file, &mut hole, size / 2).unwrap();
+        assert_eq!(hole, [0; 4]);
     }
 
     #[test]
