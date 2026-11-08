@@ -5,99 +5,99 @@
 <h1 align="center">Prism — Personal Fork</h1>
 
 <p align="center">
-  Fork oleh <a href="https://github.com/YosuaPWH">YosuaPWH</a> dari
+  A personal fork by <a href="https://github.com/YosuaPWH">YosuaPWH</a> of
   <a href="https://github.com/FortoGraphy/prism-download-manager">Prism Download Manager</a>.
-  Berfokus pada pengalaman menonton, dialog download, dan penyimpanan file parsial.
+  Focused on video playback, download dialogs, and partial-file storage.
 </p>
 
-## Perubahan dari aplikasi asli
+## Changes from the original application
 
-Perbandingan ini mengacu pada baseline upstream **1.2.4**, commit
-[`60898a7`](https://github.com/FortoGraphy/prism-download-manager/commit/60898a726f38172559aa29836fb7940e81176eab).
+This comparison uses upstream **1.2.4**, commit
+[`60898a7`](https://github.com/FortoGraphy/prism-download-manager/commit/60898a726f38172559aa29836fb7940e81176eab),
+as its baseline.
 
-| Area | Perilaku pada baseline asli | Perubahan di fork ini |
+| Area | Original baseline behavior | Changes in this fork |
 | --- | --- | --- |
-| Download AI model | Downloader khusus Hugging Face untuk mencari model/dataset, memilih file, dan memakai token. | Fitur khusus ini dihapus dari UI, pengaturan, API, dan pemrosesan URL. |
-| Tombol video saat fullscreen | Tombol dapat muncul di dalam container player fullscreen. | Tombol dan menu kualitas disembunyikan selama fullscreen, termasuk fullscreen pada container yang membungkus iframe lintas domain. Tersedia kembali saat video di-hover setelah keluar fullscreen. |
-| Dialog download | Permintaan dialog dapat terlewat saat startup atau ketika penerima event tertinggal. Kegagalan membuka dialog dapat langsung memulai download dengan pengaturan default. | Permintaan yang masih menunggu diperiksa ulang setiap dua detik; jendela yang belum terbuka dicoba lagi. Kegagalan membuka dialog tetap menunggu konfirmasi pengguna. |
-| Jendela progress | Nonaktif secara default; kegagalan membuka jendela dapat tercatat sebagai sudah ditangani. | Aktif secara default untuk profil baru. Jendela yang gagal dibuka dapat dicoba lagi. Preferensi profil lama tetap dipertahankan. |
-| Penyimpanan file parsial HTTP/FTP | Penutupan writer, termasuk saat pause/error, menghapus flag sparse di Windows. Linux memakai alokasi awal melalui `fallocate`. | Flag sparse dipertahankan saat file ditutup dan diterapkan lagi saat resume. Unix memakai ukuran file sparse agar ruang untuk bagian yang belum diterima tidak dialokasikan di awal. |
+| AI model downloads | A dedicated Hugging Face downloader for discovering models/datasets, selecting files, and using access tokens. | Remove the dedicated feature from the UI, settings, API, and special URL handling. |
+| Video button during fullscreen | The button can appear inside a fullscreen player container. | Hide the button and quality menu during fullscreen, including fullscreen containers around cross-origin iframes. Restore availability on a fresh hover after exiting fullscreen. |
+| Download dialogs | Dialog requests can be missed during startup or when the event receiver falls behind. A failed dialog open can start the download immediately with default settings. | Reconcile pending requests every two seconds and retry missing windows. Keep a failed dialog request pending for user confirmation. |
+| Progress windows | Disabled by default; a failed window open can be recorded as already handled. | Enable progress windows by default for new profiles and retry failed opens. Preserve existing profiles' saved preferences. |
+| HTTP/FTP partial-file storage | Closing the writer, including on pause/error, clears the sparse flag on Windows. Linux reserves space using `fallocate`. | Keep the sparse flag when closing and reapply it on resume. Use sparse sizing on Unix so missing ranges are not allocated in advance. |
 
-Menutup dialog lewat tombol Cancel, **Alt+F4**, atau taskbar juga membatalkan permintaan
-terkait, sehingga mekanisme pemulihan tidak membukanya kembali. Dialog yang sudah terbuka
-tidak difokuskan ulang oleh pemeriksaan berkala.
+Closing a dialog through Cancel, **Alt+F4**, or the taskbar also cancels its pending request,
+so reconciliation does not reopen it. Periodic reconciliation does not refocus dialogs that
+are already open.
 
-Penghapusan fitur AI model tidak menghapus riwayat download atau antrean yang sudah ada.
-File model melalui URL file langsung tetap dapat diunduh memakai downloader umum.
+Removing the dedicated AI model downloader preserves existing download history and queues.
+Direct model-file URLs can still be downloaded through the general downloader.
 
-Analisis teknis dan langkah verifikasi lengkap tersedia di
+For technical analysis and detailed verification steps, see
 [docs/FORK_CHANGES.md](docs/FORK_CHANGES.md).
 
-## Penanganan issue upstream #70
+## Addressing upstream issue #70
 
-[Issue #70](https://github.com/FortoGraphy/prism-download-manager/issues/70) melaporkan
-penulisan disk besar yang berlanjut setelah download di-pause atau dibatalkan pada Windows.
+[Issue #70](https://github.com/FortoGraphy/prism-download-manager/issues/70) reports heavy
+disk writes continuing after a download is paused or cancelled on Windows.
 
-Fork ini memperbaiki jalur HTTP/FTP yang menghapus flag sparse saat menutup file parsial.
-Menghapus flag tersebut dapat memicu alokasi bagian file yang belum terisi. Data yang sudah
-diterima tetap di-flush untuk menjaga resume yang aman, sehingga pause masih bisa memerlukan
-waktu singkat untuk menyelesaikan penulisan buffer.
+This fork fixes the HTTP/FTP path that cleared the sparse flag when closing a partial file.
+Clearing that flag can cause missing ranges to be allocated. Received data is still flushed
+for a durable resume point, so pausing may briefly wait for buffered writes to finish.
 
-Cakupan verifikasinya:
+Verification scope:
 
-- Pengujian Linux memastikan file berukuran logis **10 GB** yang baru terisi beberapa byte
-  tetap sparse setelah writer ditutup.
-- Torrent memakai penyimpanan terpisah dari **librqbit**. Tes offline untuk pause dan delete
-  sudah lolos di Linux, tetapi tidak ditemukan jalur penghapusan flag yang sama di sana.
-- Reproduksi pada Windows/NTFS dan gejala torrent Windows masih memerlukan pengujian langsung.
-  Perubahan ini belum membuktikan seluruh gejala dalam issue tersebut selesai.
-- Filesystem tanpa dukungan sparse, seperti FAT/exFAT, tetap mengikuti perilaku alokasi
-  filesystem tersebut. Mengaktifkan sparse saat resume tidak mengembalikan ruang yang sudah
-  teralokasi oleh versi lama.
+- Linux tests confirm that a file with a logical size of **10 GB**, containing only a few
+  received bytes, remains sparse after the writer closes.
+- Torrents use **librqbit's** separate storage implementation. Its offline pause/delete test
+  passes on Linux; the same sparse-flag-clearing path was not found there.
+- The Windows/NTFS reproduction and Windows torrent symptoms still require direct testing.
+  These changes do not establish that every symptom in the report is resolved.
+- Filesystems without sparse support, such as FAT/exFAT, retain their filesystem-dependent
+  allocation behavior. Reapplying sparse on resume does not reclaim space already allocated
+  by an older build.
 
-## Memakai enhancement fork ini
+## Using this fork's enhancements
 
-### Aplikasi desktop
+### Desktop application
 
-Build aplikasi dari checkout yang sudah memuat perubahan fork ini. Installer atau binary
-rilis upstream tetap berisi kode dari proyek aslinya.
+Build the application from a checkout containing this fork's changes. Upstream release
+installers and binaries contain the original project's code.
 
-Untuk profil lama, buka **Settings → General → Windows** dan aktifkan sesuai kebutuhan:
+For existing profiles, open **Settings → General → Windows** and enable these as needed:
 
-- **Show the Download File dialog** untuk memilih lokasi dan mengonfirmasi download.
-- **Open a progress window for new downloads** untuk membuka jendela progress otomatis.
+- **Show the Download File dialog** to choose a save location and confirm each download.
+- **Open a progress window for new downloads** to open progress windows automatically.
 
-Konfigurasi updater saat ini masih mengarah ke rilis upstream. Untuk mempertahankan build
-pribadi, nonaktifkan pemeriksaan update otomatis melalui Settings dan hindari memasang
-update upstream sampai updater dikonfigurasi untuk rilis fork sendiri.
+The updater configuration still points to upstream releases. To keep a personal build,
+disable automatic update checks in Settings and avoid installing upstream updates until
+the updater is configured for this fork's own releases.
 
-### Extension browser
+### Browser extension
 
-Perubahan fullscreen membutuhkan **extension hasil build fork ini**. Extension resmi dari
-Web Store tetap mengikuti perilaku versi resminya.
+The fullscreen changes require **an extension built from this fork**. The official Web Store
+extension retains the behavior of its published version.
 
 ```sh
 npm ci --prefix extension
 npm run build --prefix extension
 ```
 
-Untuk Chrome, Edge, Brave, dan browser Chromium lain:
+For Chrome, Edge, Brave, and other Chromium browsers:
 
-1. Hapus extension Prism yang terpasang terlebih dahulu; build fork masih memakai ID yang sama.
-2. Buka halaman extensions browser, lalu aktifkan **Developer mode**.
-3. Pilih **Load unpacked** dan arahkan ke `extension/build/chromium`.
-4. Jalankan aplikasi fork. Jika belum terhubung, buka **Settings → Browser integration → Repair**,
-   lalu restart browser.
-5. Setelah membangun ulang extension, reload extension dan tab video yang digunakan.
+1. Remove the installed Prism extension first; this fork's build retains the same ID.
+2. Open the browser's extensions page and enable **Developer mode**.
+3. Select **Load unpacked** and choose `extension/build/chromium`.
+4. Start the forked application. If it does not connect, open
+   **Settings → Browser integration → Repair**, then restart the browser.
+5. After rebuilding the extension, reload it and the video tabs you are using.
 
-Untuk uji sementara di Firefox, buka `about:debugging#/runtime/this-firefox`, pilih
-**Load Temporary Add-on**, lalu pilih `extension/build/firefox/manifest.json`.
+For temporary testing in Firefox, open `about:debugging#/runtime/this-firefox`, select
+**Load Temporary Add-on**, and choose `extension/build/firefox/manifest.json`.
 
-## Build installer Windows tanpa GitHub Actions
+## Building a Windows installer without GitHub Actions
 
-Siapkan **Node.js 24 LTS**, **Rust stable ≥ 1.88 dengan toolchain MSVC**, serta
-**Visual Studio 2022 Build Tools** dengan komponen *Desktop development with C++* dan
-Windows SDK. Dari root checkout fork, jalankan di PowerShell Windows:
+Install **Node.js 24 LTS**, **Rust stable ≥ 1.88 with the MSVC toolchain**, and
+**Visual Studio 2022 Build Tools** with *Desktop development with C++* and the Windows SDK.
+From the root of your fork checkout, run these commands in Windows PowerShell:
 
 ```powershell
 npm ci --prefix app
@@ -108,46 +108,46 @@ cd app
 npm run tauri:build -- --bundles nsis
 ```
 
-Installer dihasilkan di:
+The installer is generated at:
 
 ```text
-target\release\bundle\nsis\Prism_<versi>_x64-setup.exe
+target\release\bundle\nsis\Prism_<version>_x64-setup.exe
 ```
 
-Build ini berjalan di komputer Windows sendiri dan tidak memakai menit GitHub Actions.
-Panduan platform lainnya: [BUILD.md](BUILD.md) dan [build macOS](docs/BUILD_MACOS.md).
+This build runs on your own Windows computer and does not consume GitHub Actions minutes.
+For other platforms, see [BUILD.md](BUILD.md) and the [macOS build guide](docs/BUILD_MACOS.md).
 
-## Hasil pengujian perubahan
+## Validation results
 
-Validasi berikut dilakukan saat implementasi di cloud Linux:
+The following checks ran during implementation in the Linux cloud workspace:
 
-| Pemeriksaan | Hasil |
+| Check | Result |
 | --- | --- |
-| Tes Rust untuk core, engine, dan torrent, termasuk doctest | 182 lolos |
-| Tes aplikasi | 73 lolos |
-| Tes extension | 57 lolos |
-| Clippy pada crate yang diubah dan format Rust | Lolos |
-| Pemeriksaan tipe TypeScript aplikasi dan extension | Lolos |
-| Build frontend dan extension Chromium/Firefox | Lolos |
-| Tes fullscreen Chromium | Container player, elemen video, dan iframe lintas domain lolos |
-| Pemeriksaan UI di browser | Dashboard, fallback route model yang dihapus, dan dialog capture lolos |
+| Rust tests for core, engine, and torrent, including the doctest | 182 passed |
+| Application tests | 73 passed |
+| Extension tests | 57 passed |
+| Clippy for the affected crates and Rust formatting | Passed |
+| Application and extension TypeScript checks | Passed |
+| Frontend and Chromium/Firefox extension builds | Passed |
+| Chromium fullscreen regressions | Player container, video element, and cross-origin iframe passed |
+| Browser UI smoke test | Dashboard, removed-model-route fallback, and capture dialog passed |
 
-Pemeriksaan shell Tauri terhenti karena library pengembangan GLib (`glib-2.0.pc`) belum
-tersedia di cloud. Build native, perilaku jendela Windows, dan reproduksi penggunaan disk
-NTFS **belum diverifikasi langsung**. Detail perintah tes ada di
-[catatan validasi](docs/FORK_CHANGES.md#validation-in-the-linux-cloud-workspace).
+The Tauri shell check was blocked by missing GLib development files (`glib-2.0.pc`) in the
+cloud environment. Native builds, Windows window behavior, and the original NTFS disk-usage
+reproduction **have not been verified directly**. For the exact test commands, see the
+[validation notes](docs/FORK_CHANGES.md#validation-in-the-linux-cloud-workspace).
 
-## Fondasi dari proyek asli
+## Foundation from the original project
 
-Fork ini tetap memakai download engine Rust, UI React/Tauri, native messaging untuk
-integrasi browser, HTTP(S)/FTP, video dan stream, torrent/magnet, antrean, scheduler,
-serta fitur manajemen download dari Prism.
+This fork retains Prism's Rust download engine, React/Tauri UI, native messaging for browser
+integration, HTTP(S)/FTP downloads, video and streaming support, torrents/magnet links,
+queues, scheduler, and download management features.
 
-Kredit pengembangan aplikasi asli tetap untuk **Jan Sechovec dan para kontributor Prism**.
-Lihat [repo upstream](https://github.com/FortoGraphy/prism-download-manager) untuk proyek
-aslinya dan [ARCHITECTURE.md](ARCHITECTURE.md) untuk arsitektur kode.
+Credit for the original application belongs to **Jan Sechovec and the Prism contributors**.
+See the [upstream repository](https://github.com/FortoGraphy/prism-download-manager) for the
+original project and [ARCHITECTURE.md](ARCHITECTURE.md) for the code architecture.
 
-## Lisensi
+## License
 
-Kode Prism memakai [lisensi MIT](LICENSE). Komponen pihak ketiga tetap mengikuti lisensi
-masing-masing; lihat [THIRD_PARTY.md](THIRD_PARTY.md).
+Prism's own code is licensed under [MIT](LICENSE). Third-party components retain their
+respective licenses; see [THIRD_PARTY.md](THIRD_PARTY.md).
