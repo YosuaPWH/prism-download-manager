@@ -90,6 +90,50 @@ async fn finished(engine: &TorrentEngine, source: &TorrentSource, out: &Path) ->
     panic!("the torrent was still being checked after 30 s");
 }
 
+/// #70 also reports torrents. Exercise librqbit's own filesystem storage separately from
+/// the HTTP writer: sizing/pausing an empty torrent must preserve sparse allocation.
+#[tokio::test]
+async fn pausing_an_incomplete_torrent_does_not_materialize_missing_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let size = 16 << 20;
+    let source = TorrentSource::File(torrent("partial.bin", &[(&["partial.bin"], vec![7; size])]));
+    let engine = TorrentEngine::start_offline(dir.path().to_path_buf())
+        .await
+        .unwrap();
+    let hash = engine.add(&source, dir.path(), None, false).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while engine.progress(&hash).unwrap().state == prism_torrent::TorrentState::Initializing {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    engine.pause(&hash).await.unwrap();
+    assert_eq!(
+        engine.progress(&hash).unwrap().state,
+        prism_torrent::TorrentState::Paused
+    );
+    let path = dir.path().join("partial.bin");
+    let metadata = std::fs::metadata(&path).unwrap();
+    assert_eq!(metadata.len(), size as u64);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        assert!(metadata.blocks() * 512 < 1 << 20);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        assert_ne!(
+            metadata.file_attributes() & 0x200,
+            0,
+            "run this regression on NTFS/ReFS"
+        );
+    }
+    engine.remove(&hash, true).await.unwrap();
+    assert!(!path.exists());
+}
+
 #[tokio::test]
 async fn several_files_go_into_their_own_folder() {
     let dir = tempfile::tempdir().unwrap();

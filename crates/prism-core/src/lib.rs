@@ -11,7 +11,6 @@ pub mod clipboard;
 pub mod db;
 pub mod events;
 pub mod grabber;
-pub mod huggingface;
 pub mod ipc;
 pub mod manager;
 pub mod media;

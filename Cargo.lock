@@ -4757,7 +4757,6 @@ dependencies = [
  "percent-encoding",
  "prism-testserver",
  "reqwest",
- "rustix",
  "rustls",
  "rustls-platform-verifier",
  "serde",

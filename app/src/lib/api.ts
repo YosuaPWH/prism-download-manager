@@ -122,55 +122,6 @@ export interface TorrentMeta {
 
 export type TorrentSource = { type: "url"; value: string } | { type: "file"; value: string };
 
-/** A model (or dataset) on Hugging Face and its files (#29). */
-export type HfKind = "model" | "dataset";
-export interface HfFile {
-  path: string;
-  size: number;
-  sha256?: string | null;
-}
-export interface HfVariant {
-  label: string;
-  files: string[];
-  size: number;
-}
-export interface HfRepo {
-  kind: HfKind;
-  id: string;
-  sha: string;
-  revision: string;
-  gated: boolean;
-  private: boolean;
-  downloads?: number | null;
-  likes?: number | null;
-  pipelineTag?: string | null;
-  library?: string | null;
-  gguf: boolean;
-  files: HfFile[];
-  path?: string | null;
-  pageUrl: string;
-  folder: string;
-  suggestion: { variants: HfVariant[]; variant?: string | null; extras: string[]; files: string[] };
-}
-export interface HfHit {
-  id: string;
-  downloads?: number | null;
-  likes?: number | null;
-  pipelineTag?: string | null;
-  gguf: boolean;
-  gated: boolean;
-}
-export interface HfContext {
-  endpoint: string;
-  token?: "settings" | "environment" | "login" | null;
-  folder: string;
-  lmStudio?: string | null;
-}
-export interface HfPresent {
-  onDisk: string[];
-  listed: string[];
-}
-
 export const api = {
   bootstrap: () => invoke<Bootstrap>("bootstrap"),
   updateSettings: (patch: unknown) => invoke<Settings>("update_settings", { patch }),
@@ -206,13 +157,6 @@ export const api = {
 
   inspectTorrent: (source: TorrentSource) => invoke<TorrentMeta>("inspect_torrent", { source }),
   readTorrentFile: (path: string) => invoke<TorrentSource>("read_torrent_file", { path }),
-  hfContext: () => invoke<HfContext>("hf_context"),
-  /** Rejects with a code: `hf:notFound`, `hf:needsToken`, `hf:badToken`, `hf:gated`, `hf:rateLimited`, `hf:server`, `hf:network`. */
-  hfRepo: (input: string) => invoke<HfRepo>("hf_repo", { input }),
-  hfSearch: (query: string) => invoke<HfHit[]>("hf_search", { query }),
-  hfPresent: (args: { kind: HfKind; id: string; sha: string; folder: string; files: HfFile[] }) => invoke<HfPresent>("hf_present", { args }),
-  /** `mode` null: the "Hugging Face" queue, started. */
-  hfAdd: (args: { kind: HfKind; id: string; sha: string; files: HfFile[]; folder: string; mode: StartMode | null }) => invoke<number>("hf_add", { args }),
   /** Tools: read files (ffmpeg is downloaded first if there's none; `toolsProgress` events). */
   mediaInspect: (paths: string[]) => invoke<MediaFile[]>("media_inspect", { paths }),
   /** Tools: the "Make smaller" estimate for each file (no work done). */

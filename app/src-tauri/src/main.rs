@@ -137,6 +137,22 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // Alt+F4 / the taskbar close action bypass the React Cancel button. Forget the
+            // pending request as well, or reconciliation would reopen a dismissed dialog.
+            if matches!(
+                event,
+                WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed
+            ) && let Some(core) = window.try_state::<Core>()
+            {
+                let label = window.label();
+                if let Some(id) = label.strip_prefix("capture-") {
+                    core.cancel_capture(id);
+                } else if let Some(id) = label.strip_prefix("batch-") {
+                    core.cancel_batch(id);
+                } else if let Some(id) = label.strip_prefix("video-") {
+                    core.cancel_video(id);
+                }
+            }
             // Windows switched between light and dark: with the theme following it, the Mica
             // behind the window switches too (it was picked only when the window opened).
             if window.label() == "main"
@@ -188,11 +204,6 @@ fn main() {
             commands::inspect_torrent,
             commands::read_torrent_file,
             commands::add_torrent,
-            commands::hf_context,
-            commands::hf_repo,
-            commands::hf_search,
-            commands::hf_present,
-            commands::hf_add,
             commands::media_inspect,
             commands::media_plan,
             commands::media_start,
@@ -501,8 +512,35 @@ fn spawn_event_forwarder(app: AppHandle, core: Core) {
         // Lives here (not in the frontend) because every open window would otherwise react
         // to the same event independently and race to open duplicate windows.
         let mut opened_progress = std::collections::HashSet::<String>::new();
+        let mut reconcile = tokio::time::interval(std::time::Duration::from_secs(2));
+        reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
-            let event = match rx.recv().await {
+            let received = tokio::select! {
+                event = rx.recv() => event,
+                _ = reconcile.tick() => {
+                    // The IPC server can accept a download before this shell subscribes. A
+                    // periodic snapshot also retries failed window creation without stealing
+                    // focus from dialogs that already exist.
+                    for event in core.pending_window_events() {
+                        let (kind, id) = match &event {
+                            CoreEvent::CaptureRequested(c) => ("capture", &c.id),
+                            CoreEvent::BatchRequested(b) => ("batch", &b.id),
+                            CoreEvent::VideoRequested(v) => ("video", &v.id),
+                            _ => continue,
+                        };
+                        if app.get_webview_window(&format!("{kind}-{id}")).is_none() {
+                            side_effects(&app, &core, &event, &mut was_active,
+                                &mut last_tooltip, &mut opened_progress);
+                        }
+                    }
+                    let snapshot = core.bootstrap();
+                    for item in snapshot.items {
+                        maybe_open_progress_window(&app, &snapshot.settings, &mut opened_progress, &item);
+                    }
+                    continue;
+                }
+            };
+            let event = match received {
                 Ok(e) => e,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     // The windows missed events, perhaps a download that finished (#41): they get
@@ -526,13 +564,7 @@ fn spawn_event_forwarder(app: AppHandle, core: Core) {
     });
 }
 
-/// A file of a Hugging Face model downloading in its queue (no window per file).
-fn in_model_queue(item: &prism_core::model::DownloadItem) -> bool {
-    item.queue_id.as_deref() == Some(prism_core::huggingface::QUEUE_ID)
-}
-
 /// Opens the item's progress window the first time it's seen active, when the setting is on.
-/// `opened_progress.insert` both checks and records "already handled" in one step.
 fn maybe_open_progress_window(
     app: &AppHandle,
     settings: &Settings,
@@ -540,12 +572,13 @@ fn maybe_open_progress_window(
     item: &prism_core::model::DownloadItem,
 ) {
     if item.status.is_active() {
-        if settings.general.show_progress_window
-            && !in_model_queue(item)
-            && opened_progress.insert(item.id.clone())
-            && let Err(e) = windows::open_progress(app, &item.id)
-        {
-            tracing::error!("could not open the progress window: {e}");
+        if settings.general.show_progress_window && !opened_progress.contains(&item.id) {
+            match windows::open_progress(app, &item.id) {
+                Ok(()) => {
+                    opened_progress.insert(item.id.clone());
+                }
+                Err(e) => tracing::error!("could not open the progress window: {e}"),
+            }
         }
     } else if opened_progress.remove(&item.id)
         && item.status == prism_core::model::Status::Completed
@@ -581,12 +614,9 @@ fn side_effects(
         }
         CoreEvent::CaptureRequested(info) => {
             if let Err(e) = windows::open(app, "capture", Some(&info.id)) {
-                // Never lose a download because its dialog could not open: start it directly.
+                // Keep the pending request so reconciliation can retry. Starting silently
+                // here bypassed the save-location dialog the user asked to see.
                 tracing::error!("could not open the Download File window: {e}");
-                match core.confirm_capture_default(&info.id) {
-                    Ok(name) => notify("Download added", &name),
-                    Err(e) => tracing::error!("could not start captured download: {e:#}"),
-                }
             }
         }
         CoreEvent::BatchRequested(info) => {
@@ -600,10 +630,7 @@ fn side_effects(
             }
         }
         CoreEvent::Completed(item) => {
-            if in_model_queue(item) {
-                // A model's files finish one after another: one notification when the queue is
-                // done instead of a dialog for every config file and weights part.
-            } else if settings.general.show_completion_dialog {
+            if settings.general.show_completion_dialog {
                 let _ = windows::open(app, "complete", Some(&item.id));
             } else {
                 notify("Download complete", &item.file_name);
@@ -634,12 +661,6 @@ fn side_effects(
         CoreEvent::OpenTorrent { source } => {
             if let Err(e) = windows::open(app, "torrent", Some(&encode_path(source))) {
                 tracing::error!("could not open the Add torrent window: {e}");
-            }
-        }
-        CoreEvent::OpenModel { source } => {
-            let id = (!source.is_empty()).then(|| encode_path(source));
-            if let Err(e) = windows::open(app, "model", id.as_deref()) {
-                tracing::error!("could not open the model window: {e}");
             }
         }
         CoreEvent::MediaJob(job) => {

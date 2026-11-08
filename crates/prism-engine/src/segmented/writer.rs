@@ -275,7 +275,7 @@ impl WriterThread {
                     self.flush_all();
                     let r = self.check().and_then(|()| {
                         self.file.sync_all().map_err(|e| self.fail(&e))?;
-                        storage::finish_file(&self.file);
+                        // Closing is also used by pause/error. Keep holes sparse (#70).
                         Ok(())
                     });
                     let _ = reply.send(r);
@@ -381,6 +381,56 @@ impl WriterThread {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pause/error closes the same writer as completion. Closing an incomplete sparse file
+    /// must not allocate its unwritten gigabytes (#70).
+    #[tokio::test]
+    async fn closing_a_partial_file_preserves_sparse_allocation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("partial.prismpart");
+        let total = 10u64 << 30;
+        let file = storage::create_part_file(&path, Some(total), true).unwrap();
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if file.metadata().unwrap().file_attributes() & 0x200 == 0 {
+                eprintln!("this volume does not support sparse files; NTFS/ReFS required");
+                return;
+            }
+        }
+        let table = Arc::new(SegmentTable::new(Some(total), 1 << 20, true));
+        let budget = Arc::new(Semaphore::new(1 << 20));
+        let writer = Writer::spawn(file, table.clone(), budget, 1 << 20, 64 << 10).unwrap();
+        let (segment, _) = table.acquire(0, false).unwrap();
+        let data = Bytes::from_static(b"received bytes");
+        let permit = writer.reserve(data.len()).await.unwrap();
+        table.advance(segment.seg, 0, 0, data.len() as u64);
+        writer
+            .submit(0, segment.seg, 0, data.clone(), permit)
+            .unwrap();
+        let states = writer.flush(true).await.unwrap();
+        assert_eq!(states[0].pos, data.len() as u64);
+        writer.close().await.unwrap();
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            // Inspect before reopening: open_part_file repairs legacy sparse flags.
+            assert_ne!(
+                std::fs::metadata(&path).unwrap().file_attributes() & 0x200,
+                0
+            );
+        }
+        let file = storage::open_part_file(&path).unwrap();
+        assert_eq!(file.metadata().unwrap().len(), total);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert!(file.metadata().unwrap().blocks() * 512 < 1 << 20);
+        }
+        let mut head = vec![0; data.len()];
+        storage::read_exact_at(&file, &mut head, 0).unwrap();
+        assert_eq!(head.as_slice(), data.as_ref());
+    }
 
     #[tokio::test]
     async fn coalesces_writes_and_reports_durable_state() {

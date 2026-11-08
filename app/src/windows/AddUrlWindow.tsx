@@ -24,9 +24,7 @@ export default function AddUrlWindow() {
     });
   }, []);
 
-  // A Hugging Face model's name ("Qwen/Qwen3-8B") opens the model window.
-  const model = /^(datasets\/)?[A-Za-z0-9][\w-]*\/[\w.-]+$/.test(url.trim());
-  const valid = model || looksLikeUrl(url) || /^ftps?:\/\//i.test(url.trim());
+  const valid = looksLikeUrl(url) || /^ftps?:\/\//i.test(url.trim());
   const torrent = isTorrentLink(url);
 
   const submit = async () => {
@@ -34,8 +32,7 @@ export default function AddUrlWindow() {
     setBusy(true);
     setError("");
     try {
-      if (model) await api.openWindow("model", hexEncode(url.trim()));
-      else if (torrent) await api.openWindow("torrent", hexEncode(url.trim()));
+      if (torrent) await api.openWindow("torrent", hexEncode(url.trim()));
       else await api.addUrl({ url: url.trim(), username: auth ? user : undefined, password: auth ? pass : undefined });
       await win.close();
     } catch (e) {

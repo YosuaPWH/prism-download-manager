@@ -468,7 +468,6 @@ pub(crate) fn capture_request(n: &NewItem, settings: &Settings) -> Option<Downlo
     let mut req: DownloadRequest = serde_json::from_value(request_json(n, settings)).ok()?;
     req.proxy = Some(proxy_config(settings));
     req.http = http_preference(settings);
-    crate::huggingface::authorize(&mut req, settings);
     Some(req)
 }
 
@@ -555,8 +554,6 @@ fn build_request(item: &DownloadItem, settings: &Settings) -> Result<DownloadReq
     if let Some(c) = item.checksum.as_deref().and_then(parse_checksum) {
         req.checksum = Some(c);
     }
-    // Gated and private Hugging Face models: the token is added now, not stored with the item.
-    crate::huggingface::authorize(&mut req, settings);
     if req.user_agent.is_none() && !settings.connection.user_agent.is_empty() {
         req.user_agent = Some(settings.connection.user_agent.clone());
     }

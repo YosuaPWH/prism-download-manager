@@ -9,6 +9,7 @@ import { type ElementSource, elementSources, linkedinCommentaryPath, linkedinPos
 import { siteMatches } from '../shared/rules';
 import type { ActionResult, VideoOption, VideoOptionsResult } from '../shared/messages';
 import { VIDEO_BUTTON_CSS } from './styles';
+import { FullscreenState } from './fullscreen';
 
 const MIN_W = 200;
 const MIN_H = 120;
@@ -120,6 +121,7 @@ function inside(r: DOMRect, x: number, y: number, pad = 0): boolean {
 }
 
 export class VideoButton {
+  private fullscreen = new FullscreenState(() => this.onFullscreen());
   private host: HTMLDivElement | null = null;
   private wrap!: HTMLDivElement;
   private pill!: HTMLButtonElement;
@@ -179,7 +181,7 @@ export class VideoButton {
     window.addEventListener('pointermove', this.onMove, { capture: true, passive: true });
     window.addEventListener('scroll', this.onScroll, { capture: true, passive: true });
     window.addEventListener('resize', this.onScroll, { passive: true });
-    document.addEventListener('fullscreenchange', this.onFullscreen);
+    this.fullscreen.start();
     document.addEventListener('pointerdown', this.onDocDown, true);
     document.addEventListener('keydown', this.onKey, true);
     document.addEventListener('contextmenu', this.onContextMenu, true);
@@ -199,7 +201,7 @@ export class VideoButton {
     window.removeEventListener('pointermove', this.onMove, true);
     window.removeEventListener('scroll', this.onScroll, true);
     window.removeEventListener('resize', this.onScroll);
-    document.removeEventListener('fullscreenchange', this.onFullscreen);
+    this.fullscreen.stop();
     document.removeEventListener('pointerdown', this.onDocDown, true);
     document.removeEventListener('keydown', this.onKey, true);
     document.removeEventListener('contextmenu', this.onContextMenu, true);
@@ -296,8 +298,7 @@ export class VideoButton {
 
   private attachHost(): void {
     if (!this.host) return;
-    const fs = document.fullscreenElement;
-    const parent = fs && fs.tagName !== 'VIDEO' ? fs : document.documentElement;
+    const parent = document.documentElement;
     if (this.host.parentNode !== parent) parent.appendChild(this.host);
   }
 
@@ -320,6 +321,7 @@ export class VideoButton {
   };
 
   private hitTest(): void {
+    if (this.fullscreen.active) return this.hide(true);
     if (this.menuOpen || this.overUi) return;
     const x = this.lastX;
     const y = this.lastY;
@@ -346,8 +348,7 @@ export class VideoButton {
   }
 
   private show(v: HTMLVideoElement): void {
-    const fs = document.fullscreenElement;
-    if (fs && fs.tagName === 'VIDEO') return; // can't overlay a fullscreen <video>
+    if (this.fullscreen.active) return;
     this.ensureHost();
     this.attachHost();
     this.current = v;
@@ -385,6 +386,7 @@ export class VideoButton {
   }
 
   private position(): void {
+    if (this.fullscreen.active) return this.hide(true);
     const v = this.current;
     if (!v || !this.host) return;
     const t = targetOf(v);
@@ -398,10 +400,9 @@ export class VideoButton {
     }
     const pw = this.pill.offsetWidth || 118;
     const ph = this.pill.offsetHeight || 32;
-    const inFs = !!document.fullscreenElement;
     const x = Math.max(8, Math.min(r.right, vw) - pw - 10);
     // Above the player's top-right edge when there is room, else just inside it.
-    const y = !inFs && r.top >= ph + 14 ? r.top - ph - 6 : Math.max(r.top, 0) + 10;
+    const y = r.top >= ph + 14 ? r.top - ph - 6 : Math.max(r.top, 0) + 10;
     this.wrap.style.setProperty('--x', `${x}px`);
     this.wrap.style.setProperty('--y', `${y}px`);
     // Open the menu upwards when there's no room below.
@@ -410,10 +411,11 @@ export class VideoButton {
   }
 
   private onFullscreen = (): void => {
-    this.attachHost();
-    const fs = document.fullscreenElement;
-    if (fs && fs.tagName === 'VIDEO') this.hide(true);
-    else if (this.current) this.position();
+    clearTimeout(this.hideTimer);
+    this.hideTimer = undefined;
+    this.overUi = false;
+    this.lastX = this.lastY = -1;
+    this.hide(true);
   };
 
   private onNavigate = (): void => {
@@ -436,8 +438,7 @@ export class VideoButton {
     const c = this.contextVideo;
     this.contextVideo = null;
     if (!this.enabled || !c || Date.now() - c.at > 60_000 || !c.v.isConnected || !targetOf(c.v)) return false;
-    const fs = document.fullscreenElement;
-    if (fs && fs.tagName === 'VIDEO') return false;
+    if (this.fullscreen.active) return false;
     this.hide(true);
     this.show(c.v);
     void this.toggleMenu();

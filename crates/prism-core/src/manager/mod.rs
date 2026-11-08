@@ -17,7 +17,6 @@ pub use capture::{
     VideoEntry,
 };
 pub use jobs::ItemDetails;
-pub(crate) use jobs::{engine_config, http_preference, proxy_config};
 pub use peek::{PeekProblem, ZipFile};
 
 use crate::categories;
@@ -350,6 +349,18 @@ impl Core {
             data_dir: self.0.data_dir.clone(),
             captures: st.captures.values().map(|c| c.info.clone()).collect(),
         }
+    }
+
+    /// Dialog requests are durable in memory until confirmed/cancelled. The shell uses this
+    /// snapshot after subscribing and after lag to recover requests missed by the event stream.
+    pub fn pending_window_events(&self) -> Vec<CoreEvent> {
+        let st = self.0.state.lock();
+        st.captures
+            .values()
+            .map(|c| CoreEvent::CaptureRequested(c.info.clone()))
+            .chain(st.batches.values().cloned().map(CoreEvent::BatchRequested))
+            .chain(st.videos.values().cloned().map(CoreEvent::VideoRequested))
+            .collect()
     }
 
     pub fn settings(&self) -> Settings {
@@ -1216,9 +1227,6 @@ impl Core {
             .compression_method(zip::CompressionMethod::Deflated);
         let mut settings = self.settings();
         settings.proxy.password = String::new();
-        if !settings.hugging_face.token.is_empty() {
-            settings.hugging_face.token = "(set)".into();
-        }
         zip.start_file("settings.json", opts)?;
         zip.write_all(serde_json::to_string_pretty(&settings)?.as_bytes())?;
         let summary: Vec<serde_json::Value> = {
