@@ -808,6 +808,160 @@ async fn checksum_verification() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn audit_bad_checksum_cannot_replace_an_existing_file() {
+    let srv = default_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("keep.bin");
+    std::fs::write(&target, b"previous verified file").unwrap();
+    let mut req = request(&srv.url("/file/keep.bin?size=1024&seed=23"), dir.path(), 2);
+    req.destination.conflict = ConflictPolicy::Overwrite;
+    req.checksum = Some(ExpectedChecksum {
+        algo: ChecksumAlgo::Sha256,
+        hex: "00".repeat(32),
+    });
+    let error = wait(&engine().start(req, None, vec![]), 10)
+        .await
+        .unwrap_err();
+    assert_eq!(std::fs::read(&target).unwrap(), b"previous verified file");
+    match error {
+        EngineError::ChecksumMismatch { path, .. } => {
+            assert_ne!(path, target);
+            assert!(
+                path.exists(),
+                "unverified bytes remain available for inspection"
+            );
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn audit_redirected_ranges_do_not_receive_origin_credentials() {
+    let origin = default_server().await;
+    let cdn = default_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let target = cdn.url("/file/redirected.bin?size=4M&seed=7&throttle=2M");
+    let encoded: String = url::form_urlencoded::byte_serialize(target.as_bytes()).collect();
+    let mut req = request(
+        &origin.url(&format!("/redirect/1?to={encoded}")),
+        dir.path(),
+        4,
+    );
+    req.cookies = Some("session=origin-only".into());
+    req.auth = Some(Credentials {
+        username: "alice".into(),
+        password: "private".into(),
+        scheme: AuthScheme::Basic,
+    });
+    let done = wait(&engine().start(req, None, vec![]), 20).await.unwrap();
+    assert_eq!(sha256_file(&done.path), expected_sha256(7, 4 * MIB));
+    assert!(
+        origin
+            .stats()
+            .requests
+            .iter()
+            .any(|r| r.authorization && r.cookie.is_some())
+    );
+    let requests = cdn.stats().requests;
+    assert!(
+        requests.len() > 1,
+        "exercise subsequent direct range requests"
+    );
+    assert!(
+        requests
+            .iter()
+            .all(|r| !r.authorization && r.cookie.is_none()),
+        "CDN received origin credentials: {requests:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn audit_mirror_validation_does_not_receive_origin_credentials() {
+    let origin = default_server().await;
+    let mirror = default_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut req = request(
+        &origin.url("/file/m.bin?size=4M&seed=7&throttle=2M"),
+        dir.path(),
+        4,
+    );
+    req.cookies = Some("session=origin-only".into());
+    req.headers
+        .push(("Authorization".into(), "Bearer origin-only".into()));
+    req.mirrors
+        .push(Url::parse(&mirror.url("/file/m.bin?size=4M&seed=7&throttle=2M")).unwrap());
+    wait(&engine().start(req, None, vec![]), 20).await.unwrap();
+    let requests = mirror.stats().requests;
+    assert!(!requests.is_empty(), "the mirror validation must run");
+    assert!(
+        requests
+            .iter()
+            .all(|r| !r.authorization && r.cookie.is_none()),
+        "mirror received origin credentials: {requests:?}"
+    );
+}
+
+#[tokio::test]
+async fn audit_foreign_auth_challenges_are_not_answered_with_origin_credentials() {
+    let origin = default_server().await;
+    let foreign = default_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let target = foreign.url("/file/private.bin?auth=basic&size=1024");
+    let encoded: String = url::form_urlencoded::byte_serialize(target.as_bytes()).collect();
+    let mut req = request(
+        &origin.url(&format!("/redirect/1?to={encoded}")),
+        dir.path(),
+        1,
+    );
+    req.auth = Some(Credentials {
+        username: "alice".into(),
+        password: "private".into(),
+        scheme: AuthScheme::Auto,
+    });
+    assert_eq!(
+        engine().probe(&req).await.unwrap_err(),
+        EngineError::AuthRequired
+    );
+    assert_eq!(
+        foreign.stats().requests.len(),
+        1,
+        "a foreign challenge must not trigger credential retries"
+    );
+}
+
+#[tokio::test]
+async fn audit_malformed_partial_responses_fail_after_one_plain_request_fallback() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let requests = Arc::new(AtomicUsize::new(0));
+    let seen = requests.clone();
+    let server = tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let mut request = [0u8; 4096];
+            let _ = stream.read(&mut request).await;
+            seen.fetch_add(1, Ordering::Relaxed);
+            let _ = stream.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes nonsense\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx").await;
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let req = request(&format!("http://{address}/bad.bin"), dir.path(), 1);
+    let result = tokio::time::timeout(Duration::from_secs(2), engine().probe(&req)).await;
+    server.abort();
+    assert_eq!(
+        result
+            .expect("the probe must not loop forever")
+            .unwrap_err(),
+        EngineError::RangeNotSupported
+    );
+    assert_eq!(requests.load(Ordering::Relaxed), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn file_name_from_content_disposition_and_conflict_rename() {
     let srv = default_server().await;
     let dir = tempfile::tempdir().unwrap();

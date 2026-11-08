@@ -49,4 +49,27 @@ describe("live progress (#41)", () => {
     expect(useApp.getState().progress.a).toBeUndefined();
     expect(useApp.getState().items.a.status).toBe("completed");
   });
+
+  it("an authoritative snapshot removes deleted rows, stale progress and selection", () => {
+    useApp.setState({ selection: ['a'], anchor: 'a', progress: { a: progress(500) } });
+    handleEvent({ type: 'itemsSnapshot', payload: [] });
+    expect(useApp.getState().items).toEqual({});
+    expect(useApp.getState().progress).toEqual({});
+    expect(useApp.getState().selection).toEqual([]);
+    expect(useApp.getState().anchor).toBeNull();
+  });
+
+  it("a snapshot keeps live progress only for downloads still active in that snapshot", () => {
+    useApp.setState({ progress: { a: progress(500), orphan: { ...progress(2), id: 'orphan' } } });
+    handleEvent({ type: 'itemsSnapshot', payload: [item('downloading')] });
+    expect(Object.keys(useApp.getState().progress)).toEqual(['a']);
+    handleEvent({ type: 'itemsSnapshot', payload: [item('paused')] });
+    expect(useApp.getState().progress).toEqual({});
+  });
+
+  it('ignores late progress for a download already removed from the list', () => {
+    handleEvent({ type: 'itemsRemoved', payload: ['a'] });
+    handleEvent({ type: 'progress', payload: [progress(999)] });
+    expect(useApp.getState().progress).toEqual({});
+  });
 });

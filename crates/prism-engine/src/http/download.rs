@@ -71,6 +71,7 @@ pub(crate) fn build_ctx(
         body: req.body.clone(),
         headers: base_headers(&req.headers, req.cookies.as_deref(), req.referer.as_deref())?,
         auth: AuthState::new(req.auth.clone()),
+        credential_origin: url.origin(),
         sources: Sources::new(url, final_url, &req.mirrors),
         validators: Default::default(),
         probed: Default::default(),

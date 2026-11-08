@@ -153,10 +153,14 @@ impl HttpFetcher {
             HttpMethod::Post => reqwest::Method::POST,
         };
         let mut headers = self.ctx.headers.clone();
-        if headers.contains_key(header::AUTHORIZATION) && !self.ctx.sources.is_own_site(url) {
-            // A redirect target on another server (a CDN's signed link) doesn't get the site's
-            // credentials, the same as the redirect itself (reqwest drops them across sites).
+        let own_origin = url.origin() == self.ctx.credential_origin;
+        if !own_origin {
+            // reqwest strips secrets while following redirects, but subsequent ranges and
+            // mirror validation issue direct requests. Apply the same boundary here too.
             headers.remove(header::AUTHORIZATION);
+            headers.remove(header::COOKIE);
+            headers.remove(header::PROXY_AUTHORIZATION);
+            headers.remove("cookie2");
         }
         let mut rb = client.request(method, url.clone()).headers(headers);
         if let Some((from, to)) = range {
@@ -171,7 +175,7 @@ impl HttpFetcher {
         {
             rb = rb.header(header::IF_RANGE, v);
         }
-        if let Some(a) = authorization {
+        if let Some(a) = authorization.filter(|_| own_origin) {
             rb = rb.header(header::AUTHORIZATION, a);
         }
         if let Some(b) = &self.ctx.body {
@@ -245,17 +249,24 @@ impl HttpFetcher {
             HttpMethod::Post => "POST",
         };
         let mut rounds = 0;
+        let own_origin = url.origin() == self.ctx.credential_origin;
         loop {
-            let resp = if self.ctx.auth.uses_ntlm() && !self.ntlm_ready {
+            let resp = if own_origin && self.ctx.auth.uses_ntlm() && !self.ntlm_ready {
                 self.ntlm_handshake(&client, url, range, if_range).await?
             } else {
-                let auth = self.ctx.auth.authorization(method, url);
+                let auth = if own_origin {
+                    self.ctx.auth.authorization(method, url)
+                } else {
+                    None
+                };
                 self.request(&client, url, range, if_range, auth)
                     .send()
                     .await
                     .map_err(map_send_error)?
             };
             if resp.status() == StatusCode::UNAUTHORIZED
+                && own_origin
+                && resp.url().origin() == self.ctx.credential_origin
                 && rounds < 2
                 && self.ctx.auth.has_credentials()
             {
@@ -274,7 +285,7 @@ impl HttpFetcher {
                     ChallengeAction::GiveUp => return Ok(resp),
                 }
             }
-            if self.ctx.auth.uses_ntlm() {
+            if own_origin && self.ctx.auth.uses_ntlm() {
                 self.ntlm_ready = resp.status() != StatusCode::UNAUTHORIZED;
             }
             return Ok(resp);
@@ -299,6 +310,9 @@ impl HttpFetcher {
             .send()
             .await
             .map_err(map_send_error)?;
+        if r1.url().origin() != self.ctx.credential_origin {
+            return Ok(r1);
+        }
         if r1.status() != StatusCode::UNAUTHORIZED {
             return Ok(r1);
         }
@@ -369,7 +383,8 @@ impl HttpFetcher {
                             });
                         }
                         // Unknown total or odd range: fall back to a plain request.
-                        _ => use_ranges = false,
+                        _ if use_ranges => use_ranges = false,
+                        _ => return Err(FetchError::fatal(EngineError::RangeNotSupported)),
                     }
                 }
                 200 => {

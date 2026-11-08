@@ -179,6 +179,14 @@ export function initChromiumCapture(): boolean {
 /** URLs already handed off by the webRequest path (so onCreated doesn't double-handle). */
 const handedOff = new Map<string, number>();
 
+function wasHandedOff(url: string): boolean {
+  const at = handedOff.get(url);
+  if (at === undefined) return false;
+  if (Date.now() - at <= 30_000) return true;
+  handedOff.delete(url);
+  return false;
+}
+
 function markHandedOff(url: string): void {
   const now = Date.now();
   for (const [k, t] of handedOff) if (now - t > 30_000) handedOff.delete(k);
@@ -221,7 +229,7 @@ export function initFirefoxCapture(): void {
 
   api.downloads.onCreated.addListener((item) => {
     void (async () => {
-      if (item.state !== 'in_progress' || handedOff.has(item.url)) return;
+      if (item.state !== 'in_progress' || wasHandedOff(item.url)) return;
       const req = requestByUrl(item.url);
       const filename = basename(item.filename) || filenameFromUrl(item.url) || undefined;
       const size = item.totalBytes > 0 ? item.totalBytes : undefined;

@@ -543,10 +543,18 @@ fn spawn_event_forwarder(app: AppHandle, core: Core) {
             let event = match received {
                 Ok(e) => e,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    // The windows missed events, perhaps a download that finished (#41): they get
-                    // the whole list again (stopped downloads drop their live progress).
+                    // Discard retained deltas before taking a new snapshot. Replaying stale
+                    // additions afterwards could bring deleted rows back into the window.
                     tracing::warn!("the windows missed {n} events; sending them the list again");
-                    let _ = app.emit("core", &CoreEvent::ItemsAdded(core.bootstrap().items));
+                    rx = core.subscribe();
+                    let snapshot = core.bootstrap();
+                    let _ = app.emit("core", &CoreEvent::ItemsSnapshot(snapshot.items));
+                    let _ = app.emit("core", &CoreEvent::QueuesChanged(snapshot.queues));
+                    let _ = app.emit("core", &CoreEvent::CategoriesChanged(snapshot.categories));
+                    let _ = app.emit(
+                        "core",
+                        &CoreEvent::SettingsChanged(Box::new(snapshot.settings)),
+                    );
                     continue;
                 }
                 Err(_) => break,

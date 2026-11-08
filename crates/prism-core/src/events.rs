@@ -118,6 +118,8 @@ pub struct ZipProgress {
 #[serde(tag = "type", content = "payload", rename_all = "camelCase")]
 pub enum CoreEvent {
     ItemsAdded(Vec<DownloadItem>),
+    /// Authoritative list after event loss: rows absent from it must be removed.
+    ItemsSnapshot(Vec<DownloadItem>),
     ItemUpdated(DownloadItem),
     ItemsRemoved(Vec<String>),
     /// Batched live progress (~4 Hz) of running items.
