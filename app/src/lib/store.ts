@@ -56,6 +56,8 @@ const ACTIVE: Status[] = ["connecting", "downloading", "retrying", "processing"]
 
 export const isActive = (s: Status) => ACTIVE.includes(s);
 
+let initialization: Promise<void> | null = null;
+
 export const useApp = create<AppState>((set, get) => ({
   ready: false,
   version: "",
@@ -75,22 +77,38 @@ export const useApp = create<AppState>((set, get) => ({
 
   init: async () => {
     if (get().ready) return;
-    const [boot, native]: [Bootstrap, boolean] = await Promise.all([api.bootstrap(), api.nativeMaterial().catch(() => true)]);
-    nativeMaterial = native;
-    const items: Record<string, DownloadItem> = {};
-    for (const i of boot.items) items[i.id] = i;
-    set({
-      ready: true,
-      version: boot.version,
-      dataDir: boot.dataDir,
-      items,
-      categories: boot.categories,
-      queues: boot.queues,
-      settings: boot.settings,
-      grabberProjects: boot.grabberProjects,
-    });
-    applyAppearance(boot.settings);
-    await onCoreEvent(handleEvent);
+    initialization ??= (async () => {
+      const buffered: CoreEvent[] = [];
+      let loading = true;
+      const off = await onCoreEvent((event) => {
+        if (loading) buffered.push(event);
+        else handleEvent(event);
+      });
+      try {
+        const [boot, native]: [Bootstrap, boolean] = await Promise.all([api.bootstrap(), api.nativeMaterial().catch(() => true)]);
+        nativeMaterial = native;
+        const items: Record<string, DownloadItem> = {};
+        for (const i of boot.items) items[i.id] = i;
+        set({
+          version: boot.version,
+          dataDir: boot.dataDir,
+          items,
+          progress: {},
+          categories: boot.categories,
+          queues: boot.queues,
+          settings: boot.settings,
+          grabberProjects: boot.grabberProjects,
+        });
+        applyAppearance(boot.settings);
+        for (const event of buffered) handleEvent(event);
+        loading = false;
+        set({ ready: true });
+      } catch (error) {
+        off();
+        throw error;
+      }
+    })().finally(() => { initialization = null; });
+    return initialization;
   },
 
   setView: (view) => set({ view, selection: [], anchor: null }),
@@ -110,8 +128,6 @@ export function handleEvent(e: CoreEvent) {
   const st = useApp.getState();
   switch (e.type) {
     case "itemsAdded": {
-      // Also the whole list again after the window missed events (see main.rs): live progress
-      // of a download that has stopped meanwhile goes.
       const items = { ...st.items };
       const progress = { ...st.progress };
       for (const i of e.payload) {
@@ -119,6 +135,16 @@ export function handleEvent(e: CoreEvent) {
         if (!isActive(i.status)) delete progress[i.id];
       }
       useApp.setState({ items, progress });
+      break;
+    }
+    case "itemsSnapshot": {
+      const items = Object.fromEntries(e.payload.map((item) => [item.id, item]));
+      const progress = Object.fromEntries(Object.entries(st.progress).filter(([id]) => items[id] && isActive(items[id].status)));
+      useApp.setState({
+        items, progress,
+        selection: st.selection.filter((id) => !!items[id]),
+        anchor: st.anchor && items[st.anchor] ? st.anchor : null,
+      });
       break;
     }
     case "itemUpdated": {
@@ -151,7 +177,7 @@ export function handleEvent(e: CoreEvent) {
       const progress = { ...st.progress };
       for (const p of e.payload) {
         const item = st.items[p.id];
-        if (!item || isActive(item.status)) progress[p.id] = p;
+        if (item && isActive(item.status)) progress[p.id] = p;
       }
       useApp.setState({ progress });
       break;

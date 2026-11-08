@@ -37,7 +37,12 @@ export async function cookieHeaderFor(url: string, incognito: boolean, sent?: st
   let fromStore = '';
   try {
     let storeId: string | undefined;
-    if (incognito) storeId = pickCookieStoreId(await api.cookies.getAllCookieStores(), true);
+    if (incognito) {
+      storeId = pickCookieStoreId(await api.cookies.getAllCookieStores(), true);
+      // Omitting storeId selects the regular store. A failed private-store lookup must
+      // retain only cookies actually captured from that private request.
+      if (!storeId) return mergeCookieHeaders(sent, '');
+    }
     const details: chrome.cookies.GetAllDetails = { url };
     if (storeId) details.storeId = storeId;
     const stored = await api.cookies.getAll(details);
@@ -48,14 +53,14 @@ export async function cookieHeaderFor(url: string, incognito: boolean, sent?: st
   return mergeCookieHeaders(sent, fromStore);
 }
 
-/** Cookie headers per origin, cached for one batch. */
+/** Cookie headers per origin and exact path, cached for one batch. */
 export function cookieCache(incognito: boolean): (url: string) => Promise<string> {
   const cache = new Map<string, Promise<string>>();
   return (url: string) => {
     let origin: string;
     try {
       const u = new URL(url);
-      origin = u.origin + u.pathname.slice(0, u.pathname.lastIndexOf('/') + 1);
+      origin = u.origin + u.pathname;
     } catch {
       return Promise.resolve('');
     }

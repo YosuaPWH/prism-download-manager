@@ -34,6 +34,26 @@ Direct model-file URLs can still be downloaded through the general downloader.
 For technical analysis and detailed verification steps, see
 [docs/FORK_CHANGES.md](docs/FORK_CHANGES.md).
 
+## Additional audit fixes
+
+A subsequent code review adds protection for download integrity, credential handling, and
+intermittent lifecycle bugs:
+
+- Keep HTTP credentials and cookies on their original origin when following redirects,
+  validating mirrors, or refreshing a running download's address.
+- Verify checksums before publishing a download, preserving an existing file when verification
+  fails. Honor cancellation during pause cleanup and checksum finalization.
+- Reject impossible Content-Range values and stop retrying malformed partial responses forever.
+- Isolate cookie-cache entries by exact path and prevent an unresolved private cookie store
+  from falling back to the regular store.
+- Subscribe to frontend events before loading the initial snapshot, recover deleted rows
+  correctly after event loss, and ignore stale progress for removed downloads.
+- Expire Firefox handoff markers when they are read so repeated downloads of the same URL
+  continue to work after the duplicate-suppression interval.
+
+See [the code audit](docs/CODE_AUDIT.md) for findings, regression evidence, integration-test
+setup, and release recommendations.
+
 ## Addressing upstream issue #70
 
 [Issue #70](https://github.com/FortoGraphy/prism-download-manager/issues/70) reports heavy
@@ -123,14 +143,15 @@ The following checks ran during implementation in the Linux cloud workspace:
 
 | Check | Result |
 | --- | --- |
-| Rust tests for core, engine, and torrent, including the doctest | 182 passed |
-| Application tests | 73 passed |
-| Extension tests | 57 passed |
+| Rust workspace tests excluding the native app shell, including doctests | 332 passed; 13 existing tests ignored |
+| Application tests | 79 passed |
+| Extension tests | 62 passed |
 | Clippy for the affected crates and Rust formatting | Passed |
 | Application and extension TypeScript checks | Passed |
 | Frontend and Chromium/Firefox extension builds | Passed |
 | Chromium fullscreen regressions | Player container, video element, and cross-origin iframe passed |
 | Browser UI smoke test | Dashboard, removed-model-route fallback, and capture dialog passed |
+| Chromium/native-host integration with a mock desktop backend | 15/15 passed |
 
 The Tauri shell check was blocked by missing GLib development files (`glib-2.0.pc`) in the
 cloud environment. Native builds, Windows window behavior, and the original NTFS disk-usage

@@ -1,5 +1,8 @@
 # Personal fork changes
 
+These notes describe the initial fork enhancements. For the subsequent review and its
+additional fixes, see [CODE_AUDIT.md](CODE_AUDIT.md).
+
 ## Model downloads
 
 The dedicated Hugging Face model/dataset downloader has been removed: toolbar/sidebar

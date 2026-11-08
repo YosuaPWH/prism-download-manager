@@ -179,6 +179,7 @@ pub(crate) async fn finalize(
 ) -> Result<Completed, EngineError> {
     job.set_state(DownloadState::Finalizing);
     writer.close().await?;
+    check_cancelled(job, part_path)?;
     let size = std::fs::metadata(part_path)
         .map_err(|e| EngineError::from_io(&e, 0))?
         .len();
@@ -192,28 +193,37 @@ pub(crate) async fn finalize(
     let actual = match checksum {
         Some(c) => {
             let (p, algo) = (part_path.to_path_buf(), c.algo);
-            let digest = tokio::task::spawn_blocking(move || checksum::hash_file(&p, algo))
-                .await
-                .map_err(EngineError::internal)?
-                .map_err(|e| EngineError::from_io(&e, 0))?;
+            let hashing_job = job.clone();
+            let digest = tokio::task::spawn_blocking(move || {
+                checksum::hash_file(&p, algo, || {
+                    matches!(hashing_job.stop_reason(), Some(StopReason::Cancel { .. }))
+                })
+            })
+            .await
+            .map_err(EngineError::internal)?;
+            check_cancelled(job, part_path)?;
+            let digest = digest.map_err(|e| EngineError::from_io(&e, 0))?;
             Some((checksum::normalize_hex(&c.hex), digest))
         }
         None => None,
     };
-    let path = place_file(part_path, final_path, conflict)?;
-    {
-        let mut m = job.meta();
-        m.final_path = Some(path.clone());
-        m.total = Some(size);
-    }
     if let Some((expected, actual)) = actual
         && expected != actual
     {
         return Err(EngineError::ChecksumMismatch {
             expected,
             actual,
-            path,
+            path: part_path.to_path_buf(),
         });
+    }
+    // Publishing is the commit point: neither unverified nor cancelled bytes may replace
+    // an existing destination. Keep checksum failures under the partial-file name.
+    check_cancelled(job, part_path)?;
+    let path = place_file(part_path, final_path, conflict)?;
+    {
+        let mut m = job.meta();
+        m.final_path = Some(path.clone());
+        m.total = Some(size);
     }
     Ok(Completed {
         path,
@@ -224,6 +234,16 @@ pub(crate) async fn finalize(
         extra_files: Vec::new(),
         warning: None,
     })
+}
+
+fn check_cancelled(job: &JobShared, part_path: &Path) -> Result<(), EngineError> {
+    if let Some(StopReason::Cancel { delete_file }) = job.stop_reason() {
+        if delete_file {
+            let _ = std::fs::remove_file(part_path);
+        }
+        return Err(EngineError::Cancelled);
+    }
+    Ok(())
 }
 
 /// Paths of the part and final file.
@@ -243,6 +263,11 @@ pub(crate) async fn end_job(
     run_started: Instant,
 ) -> (Result<Completed, EngineError>, Option<ResumeState>) {
     let total = job.meta().total;
+    // The supervisor captured its outcome before the writer drains. A newer cancel must
+    // override that snapshot, including a pause already in flight.
+    let outcome = job
+        .stop_reason()
+        .map_or(outcome, |reason| Ok(Outcome::Stopped(reason)));
     match outcome {
         Ok(Outcome::Completed) => {
             let r = finalize(
@@ -257,34 +282,39 @@ pub(crate) async fn end_job(
                 run_started,
             )
             .await;
-            (r, None)
+            let state = if matches!(&r, Err(EngineError::Cancelled))
+                && job.stop_reason() == Some(StopReason::Cancel { delete_file: false })
+            {
+                job.resume_state()
+            } else {
+                None
+            };
+            (r, state)
         }
-        Ok(Outcome::Stopped(StopReason::Pause)) => {
+        Ok(Outcome::Stopped(reason)) => {
+            if reason == (StopReason::Cancel { delete_file: true }) {
+                writer.discard().await;
+                let _ = std::fs::remove_file(&paths.part);
+                return (Err(EngineError::Cancelled), None);
+            }
             let state = writer
                 .flush(true)
                 .await
                 .ok()
                 .and_then(|segs| job.build_resume(segs));
             let closed = writer.close().await;
-            match closed {
-                Ok(()) => (Err(EngineError::Paused), state),
-                Err(e) => (Err(e), state),
+            // Cancellation can also arrive while flush/fsync is running.
+            match job.stop_reason().unwrap_or(reason) {
+                StopReason::Cancel { delete_file: true } => {
+                    let _ = std::fs::remove_file(&paths.part);
+                    (Err(EngineError::Cancelled), None)
+                }
+                StopReason::Cancel { delete_file: false } => (Err(EngineError::Cancelled), state),
+                StopReason::Pause => match closed {
+                    Ok(()) => (Err(EngineError::Paused), state),
+                    Err(e) => (Err(e), state),
+                },
             }
-        }
-        Ok(Outcome::Stopped(StopReason::Cancel { delete_file: true })) => {
-            // Nothing to keep: no flush or fsync of data that is deleted right away.
-            writer.discard().await;
-            let _ = std::fs::remove_file(&paths.part);
-            (Err(EngineError::Cancelled), None)
-        }
-        Ok(Outcome::Stopped(StopReason::Cancel { delete_file: false })) => {
-            let state = writer
-                .flush(true)
-                .await
-                .ok()
-                .and_then(|segs| job.build_resume(segs));
-            let _ = writer.close().await;
-            (Err(EngineError::Cancelled), state)
         }
         Err(e) => {
             if e == EngineError::LinkExpired {
@@ -297,6 +327,14 @@ pub(crate) async fn end_job(
                 .ok()
                 .and_then(|segs| job.build_resume(segs));
             let _ = writer.close().await;
+            if let Err(cancelled) = check_cancelled(job, &paths.part) {
+                let state = if job.stop_reason() == Some(StopReason::Cancel { delete_file: true }) {
+                    None
+                } else {
+                    state
+                };
+                return (Err(cancelled), state);
+            }
             (Err(e), state)
         }
     }
@@ -305,6 +343,79 @@ pub(crate) async fn end_job(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn audit_cancel_wins_over_an_already_captured_pause_outcome() {
+        use crate::segmented::table::SegmentTable;
+        let dir = tempfile::tempdir().unwrap();
+        let part = dir.path().join("test.bin.prismpart");
+        let paths = Paths {
+            part: part.clone(),
+            final_path: dir.path().join("test.bin"),
+        };
+        let file = storage::create_part_file(&part, Some(1024), true).unwrap();
+        let table = Arc::new(SegmentTable::new(Some(1024), 1024, true));
+        let budget = Arc::new(tokio::sync::Semaphore::new(1 << 20));
+        let writer = Writer::spawn(file, table, budget, 1 << 20, 64 << 10).unwrap();
+        let req = DownloadRequest::new(
+            url::Url::parse("http://example.test/file").unwrap(),
+            dir.path(),
+        );
+        let (job, _) = JobShared::new(req.url.clone(), crate::resume::ResumeKind::Http, 0);
+        job.request_stop(StopReason::Pause);
+        let outcome = Ok(Outcome::Stopped(StopReason::Pause));
+        job.request_stop(StopReason::Cancel { delete_file: true });
+        let (result, state) =
+            end_job(&job, &writer, &paths, outcome, &req, 0, Instant::now()).await;
+        assert_eq!(result.unwrap_err(), EngineError::Cancelled);
+        assert!(state.is_none());
+        assert!(
+            !part.exists(),
+            "cancelling after pause must delete the partial file"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancellation_before_publication_preserves_the_existing_destination() {
+        use crate::segmented::table::SegmentTable;
+        for delete_file in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let part = dir.path().join("file.bin.prismpart");
+            let target = dir.path().join("file.bin");
+            std::fs::write(&target, b"previous file").unwrap();
+            let file = storage::create_part_file(&part, Some(1024), true).unwrap();
+            let table = Arc::new(SegmentTable::new(Some(1024), 1024, true));
+            let writer = Writer::spawn(
+                file,
+                table,
+                Arc::new(tokio::sync::Semaphore::new(1 << 20)),
+                1 << 20,
+                64 << 10,
+            )
+            .unwrap();
+            let (job, _) = JobShared::new(
+                url::Url::parse("http://example.test/file").unwrap(),
+                crate::resume::ResumeKind::Http,
+                0,
+            );
+            job.request_stop(StopReason::Cancel { delete_file });
+            let result = finalize(
+                &job,
+                &writer,
+                &part,
+                &target,
+                Some(1024),
+                ConflictPolicy::Overwrite,
+                None,
+                0,
+                Instant::now(),
+            )
+            .await;
+            assert_eq!(result.unwrap_err(), EngineError::Cancelled);
+            assert_eq!(std::fs::read(&target).unwrap(), b"previous file");
+            assert_eq!(part.exists(), !delete_file);
+        }
+    }
 
     #[test]
     fn destination_policies() {

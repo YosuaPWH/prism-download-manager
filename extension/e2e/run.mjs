@@ -11,7 +11,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { startMockApp } from './mock-app.mjs';
 import { startSite } from './site.mjs';
@@ -92,6 +92,23 @@ const dataDir = join(tmp, 'data');
 const profile = join(tmp, 'profile');
 const nmDir = join(tmp, 'nm');
 const dlDir = join(tmp, 'downloads');
+// Linux native manifests must stay inside this test's config root; --manifest-dir controls
+// only Windows. Chromium looks for user-level hosts under its explicit user-data-dir.
+const configDir = join(tmp, 'config');
+const hostEnv = {
+  ...process.env, PRISM_DATA_DIR: dataDir,
+  ...(process.platform === 'linux' ? { XDG_CONFIG_HOME: configDir } : {}),
+};
+mkdirSync(join(profile, 'Default'), { recursive: true });
+mkdirSync(dlDir, { recursive: true });
+// CDP's default download behavior exercises the extension hook. Give Chrome itself a
+// writable destination too, rather than falling back to the user's real Downloads folder.
+writeFileSync(join(profile, 'Default', 'Preferences'), JSON.stringify({
+  download: { default_directory: dlDir, prompt_for_download: false },
+}));
+if (process.platform === 'linux') {
+  symlinkSync(join(configDir, 'chromium', 'NativeMessagingHosts'), join(profile, 'NativeMessagingHosts'), 'dir');
+}
 const backups = {};
 const parentExisted = {};
 let context;
@@ -111,7 +128,7 @@ try {
   }
   const reg = execFileSync(hostExe, ['register', '--browsers', browsers, '--manifest-dir', nmDir, '--extension-id-chrome', EXPECTED_ID], {
     encoding: 'utf8',
-    env: { ...process.env, PRISM_DATA_DIR: dataDir },
+    env: hostEnv,
   });
   const regStatus = JSON.parse(reg);
   assert.ok(regStatus.every((s) => s.registered && s.pointsToThisHost), `registration failed: ${reg}`);
@@ -124,7 +141,7 @@ try {
     acceptDownloads: true,
     downloadsPath: dlDir,
     args: [`--disable-extensions-except=${extDir}`, `--load-extension=${extDir}`],
-    env: { ...process.env, PRISM_DATA_DIR: dataDir, PRISM_APP_PATH: join(tmp, 'no-app.exe'), PRISM_HOST_DEBUG: '1' },
+    env: { ...hostEnv, PRISM_APP_PATH: join(tmp, 'no-app.exe'), PRISM_HOST_DEBUG: '1' },
     viewport: { width: 1280, height: 900 },
   });
   const sw = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker', { timeout: 10000 }));
@@ -678,7 +695,7 @@ try {
   await mock?.close().catch(() => {});
   await site?.close().catch(() => {});
   try {
-    execFileSync(hostExe, ['unregister', '--browsers', browsers, '--manifest-dir', nmDir], { stdio: 'ignore', env: { ...process.env, PRISM_DATA_DIR: dataDir } });
+    execFileSync(hostExe, ['unregister', '--browsers', browsers, '--manifest-dir', nmDir], { stdio: 'ignore', env: hostEnv });
   } catch {
     /* ignore */
   }

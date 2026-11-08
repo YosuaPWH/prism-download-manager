@@ -163,14 +163,6 @@ impl Sources {
         self.lock().mirrors.iter().map(|m| m.url.clone()).collect()
     }
 
-    /// Whether `url` is on the site of the download's own link or of one of its mirrors (not
-    /// on a server one of them redirected to).
-    pub(crate) fn is_own_site(&self, url: &Url) -> bool {
-        let g = self.lock();
-        let origin = url.origin();
-        g.original.origin() == origin || g.mirrors.iter().any(|m| m.url.origin() == origin)
-    }
-
     /// Replaces the primary URL (change_url).
     pub(crate) fn replace_primary(&self, url: Url, final_url: Option<Url>) {
         let mut g = self.lock();
@@ -195,6 +187,9 @@ pub(crate) struct HttpCtx {
     pub body: Option<String>,
     pub headers: HeaderMap,
     pub auth: AuthState,
+    /// Credentials belong to the initial request's origin, not redirects, mirrors or a
+    /// later cross-origin address refresh. This never changes with Sources::replace_primary.
+    pub credential_origin: url::Origin,
     pub sources: Sources,
     pub validators: Mutex<Validators>,
     /// A successful response was received (403/410 afterwards mean an expired link).
@@ -290,6 +285,9 @@ pub(crate) fn parse_content_range(v: &str) -> Option<(u64, u64, Option<u64>)> {
         "*" => None,
         t => Some(t.parse().ok()?),
     };
+    if b == u64::MAX || total.is_some_and(|total| b >= total) {
+        return None;
+    }
     Some((a, b, total))
 }
 
@@ -344,6 +342,14 @@ mod tests {
         assert_eq!(parse_unsatisfied_range("bytes */77"), Some(77));
         assert_eq!(strong_etag(Some("\"a\"")), Some("\"a\""));
         assert_eq!(strong_etag(Some("W/\"a\"")), None);
+    }
+
+    #[test]
+    fn audit_content_ranges_reject_out_of_bounds_and_overflow() {
+        assert_eq!(parse_content_range("bytes 0-10/10"), None);
+        assert_eq!(parse_content_range("bytes 0-0/0"), None);
+        assert_eq!(parse_content_range("bytes 0-18446744073709551615/*"), None);
+        assert_eq!(parse_content_range("bytes 0-9/10"), Some((0, 9, Some(10))));
     }
 
     #[test]
