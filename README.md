@@ -1,208 +1,153 @@
 <p align="center">
-  <img src="assets/brand/png/app-icon-256.png" width="120" alt="Prism">
+  <img src="assets/brand/png/app-icon-256.png" width="100" alt="Prism">
 </p>
 
-<h1 align="center">Prism</h1>
+<h1 align="center">Prism — Personal Fork</h1>
 
 <p align="center">
-  <b>One beam. Many rays.</b><br>
-  The fast, beautiful, open-source download manager for Windows, macOS and Linux.
+  Fork oleh <a href="https://github.com/YosuaPWH">YosuaPWH</a> dari
+  <a href="https://github.com/FortoGraphy/prism-download-manager">Prism Download Manager</a>.
+  Berfokus pada pengalaman menonton, dialog download, dan penyimpanan file parsial.
 </p>
 
-<p align="center">
-  <a href="https://github.com/FortoGraphy/prism-download-manager/releases/latest"><img alt="Latest release" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fprismdl.site%2Frelease.json&style=flat-square&cacheSeconds=300"></a>
-  <a href="https://github.com/FortoGraphy/prism-download-manager/releases"><img alt="Downloads" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fprismdl.site%2Fdownloads.json&style=flat-square&cacheSeconds=300"></a>
-  <a href="https://github.com/FortoGraphy/prism-download-manager/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fprismdl.site%2Ftests.json&style=flat-square&cacheSeconds=300"></a>
-  <a href="https://chromewebstore.google.com/detail/prism-download-manager/mmcdeiglkbfbicdjboocmhehodogilfl"><img alt="Chrome Web Store" src="https://img.shields.io/chrome-web-store/v/mmcdeiglkbfbicdjboocmhehodogilfl?style=flat-square&label=Chrome%20Web%20Store&color=4285f4"></a>
-  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2ecc71?style=flat-square"></a>
-  <img alt="Platforms" src="https://img.shields.io/badge/Windows%20·%20macOS%20·%20Linux-555?style=flat-square">
-</p>
+## Perubahan dari aplikasi asli
 
-<p align="center">
-  <a href="https://github.com/FortoGraphy/prism-download-manager/releases/latest"><b>⬇ Download</b></a> ·
-  <a href="https://prismdl.site/"><b>Website</b></a> ·
-  <a href="https://youtu.be/IkZu0XN2lLQ"><b>▶ Watch the film</b></a> ·
-  <a href="docs/guide/installation.md">Install guide</a> ·
-  <a href="docs/guide/browser-extension.md">Browser extension</a> ·
-  <a href="https://ko-fi.com/prismdownloadmanager"><b>☕ Buy me a beam</b></a>
-</p>
+Perbandingan ini mengacu pada baseline upstream **1.2.4**, commit
+[`60898a7`](https://github.com/FortoGraphy/prism-download-manager/commit/60898a726f38172559aa29836fb7940e81176eab).
 
-<p align="center">
-  <a href="https://youtu.be/IkZu0XN2lLQ">
-    <img src="docs/media/teaser.gif" width="860" alt="Prism in motion: one beam splits into many connections">
-  </a>
-</p>
+| Area | Perilaku pada baseline asli | Perubahan di fork ini |
+| --- | --- | --- |
+| Download AI model | Downloader khusus Hugging Face untuk mencari model/dataset, memilih file, dan memakai token. | Fitur khusus ini dihapus dari UI, pengaturan, API, dan pemrosesan URL. |
+| Tombol video saat fullscreen | Tombol dapat muncul di dalam container player fullscreen. | Tombol dan menu kualitas disembunyikan selama fullscreen, termasuk fullscreen pada container yang membungkus iframe lintas domain. Tersedia kembali saat video di-hover setelah keluar fullscreen. |
+| Dialog download | Permintaan dialog dapat terlewat saat startup atau ketika penerima event tertinggal. Kegagalan membuka dialog dapat langsung memulai download dengan pengaturan default. | Permintaan yang masih menunggu diperiksa ulang setiap dua detik; jendela yang belum terbuka dicoba lagi. Kegagalan membuka dialog tetap menunggu konfirmasi pengguna. |
+| Jendela progress | Nonaktif secara default; kegagalan membuka jendela dapat tercatat sebagai sudah ditangani. | Aktif secara default untuk profil baru. Jendela yang gagal dibuka dapat dicoba lagi. Preferensi profil lama tetap dipertahankan. |
+| Penyimpanan file parsial HTTP/FTP | Penutupan writer, termasuk saat pause/error, menghapus flag sparse di Windows. Linux memakai alokasi awal melalui `fallocate`. | Flag sparse dipertahankan saat file ditutup dan diterapkan lagi saat resume. Unix memakai ukuran file sparse agar ruang untuk bagian yang belum diterima tidak dialokasikan di awal. |
 
----
+Menutup dialog lewat tombol Cancel, **Alt+F4**, atau taskbar juga membatalkan permintaan
+terkait, sehingga mekanisme pemulihan tidak membukanya kembali. Dialog yang sudah terbuka
+tidak difokuskan ulang oleh pemeriksaan berkala.
 
-Prism splits every download into up to **32 parallel connections**, keeps them all busy until
-the last byte, and survives crashes, sleep and pulled cables. Click a link in your browser and
-Prism takes over; hover a video and grab it as **MP4 in the quality you want — or just the MP3**.
-All of it in a calm, liquid-glass interface with dark and light themes.
+Penghapusan fitur AI model tidak menghapus riwayat download atau antrean yang sudah ada.
+File model melalui URL file langsung tetap dapat diunduh memakai downloader umum.
 
-Free, open source, no ads, no accounts, no telemetry.
+Analisis teknis dan langkah verifikasi lengkap tersedia di
+[docs/FORK_CHANGES.md](docs/FORK_CHANGES.md).
 
-## ✨ Why Prism
+## Penanganan issue upstream #70
 
-| | |
-|---|---|
-| ⚡ **Up to 15× faster** | On servers that throttle each connection, Prism's multi-connection engine is up to 15× faster than a normal browser download ([benchmarks](#-benchmarks)). |
-| 🔁 **Never start over** | Pause, close the laptop, lose power — Prism resumes exactly where it stopped and checks that the file on the server hasn't changed. |
-| 🌐 **Lives in your browser** | Chrome, Edge, Brave, Opera, Vivaldi and Firefox. Downloads jump into Prism in about a quarter of a second. |
-| 🎬 **Video & music** | YouTube and [1,800+ sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md): MP4 up to 8K/HDR or MP3 only, with subtitles, chapters and SponsorBlock. |
-| 🧲 **Every protocol** | HTTP(S), FTP/FTPS, HLS and DASH streams, BitTorrent and magnet links. |
-| 🗂 **Organised** | Categories, queues with schedules and speed limits, "shut down when done", site grabber, batch downloads, clipboard monitor. |
-| 🌍 **Your language** | English, Czech, German, Spanish, French, Italian, Indonesian, Turkish, Simplified Chinese and Arabic. Prism follows your system's language, or pick one in Settings. |
-| 🎨 **Gorgeous** | Liquid-glass design, dark & light themes, six accent colours, a mini window — and fast with thousands of downloads. |
+[Issue #70](https://github.com/FortoGraphy/prism-download-manager/issues/70) melaporkan
+penulisan disk besar yang berlanjut setelah download di-pause atau dibatalkan pada Windows.
 
-<p align="center">
-  <img src="docs/screenshots/details-window.png" width="820" alt="Prism download details: 16 live connections, file map and speed graph">
-</p>
+Fork ini memperbaiki jalur HTTP/FTP yang menghapus flag sparse saat menutup file parsial.
+Menghapus flag tersebut dapat memicu alokasi bagian file yang belum terisi. Data yang sudah
+diterima tetap di-flush untuk menjaga resume yang aman, sehingga pause masih bisa memerlukan
+waktu singkat untuk menyelesaikan penulisan buffer.
 
-## ⬇ Download
+Cakupan verifikasinya:
 
-Grab the file for your system from the **[latest release](https://github.com/FortoGraphy/prism-download-manager/releases/latest)**:
+- Pengujian Linux memastikan file berukuran logis **10 GB** yang baru terisi beberapa byte
+  tetap sparse setelah writer ditutup.
+- Torrent memakai penyimpanan terpisah dari **librqbit**. Tes offline untuk pause dan delete
+  sudah lolos di Linux, tetapi tidak ditemukan jalur penghapusan flag yang sama di sana.
+- Reproduksi pada Windows/NTFS dan gejala torrent Windows masih memerlukan pengujian langsung.
+  Perubahan ini belum membuktikan seluruh gejala dalam issue tersebut selesai.
+- Filesystem tanpa dukungan sparse, seperti FAT/exFAT, tetap mengikuti perilaku alokasi
+  filesystem tersebut. Mengaktifkan sparse saat resume tidak mengembalikan ruang yang sudah
+  teralokasi oleh versi lama.
 
-| System | File |
-|---|---|
-| **Windows** 10 / 11 | `Prism_<version>_x64-setup.exe` — recommended, no admin rights needed<br>`…_x64_en-US.msi` for all users · `…-windows-x64-portable.zip` for USB sticks |
-| **macOS** 11+ Apple Silicon | `Prism_<version>_aarch64.dmg` |
-| **macOS** 11+ Intel | `Prism_<version>_x64.dmg` |
-| **Ubuntu / Debian / Mint** | `Prism_<version>_amd64.deb` |
-| **Fedora / openSUSE** | `Prism-<version>-1.x86_64.rpm` |
-| **Any Linux** | `Prism_<version>_amd64.AppImage` |
+## Memakai enhancement fork ini
 
-> **First start:** the installers are not code-signed (certificates cost money).
-> Windows: *More info → Run anyway*. macOS: run `xattr -dr com.apple.quarantine /Applications/Prism.app`
-> once (or *System Settings → Privacy & Security → Open Anyway*).
-> Step-by-step for every system: **[Installation guide](docs/guide/installation.md)**.
+### Aplikasi desktop
 
-## 🌐 Browser extension (1 minute)
+Build aplikasi dari checkout yang sudah memuat perubahan fork ini. Installer atau binary
+rilis upstream tetap berisi kode dari proyek aslinya.
 
-**[Add Prism from the Chrome Web Store](https://chromewebstore.google.com/detail/prism-download-manager/mmcdeiglkbfbicdjboocmhehodogilfl)**
-— Chrome, Edge, Brave, Opera, Vivaldi and Helium. Click **Add to Chrome**, pin the Prism icon, and it
-says **Connected**. The store keeps it up to date.
+Untuk profil lama, buka **Settings → General → Windows** dan aktifkan sesuai kebutuhan:
 
-Prism also walks you through this on first start (and any time from **Settings → Browser
-integration**). Firefox, Edge/Opera notes, troubleshooting and privacy details:
-**[Browser extension guide](docs/guide/browser-extension.md)**.
+- **Show the Download File dialog** untuk memilih lokasi dan mengonfirmasi download.
+- **Open a progress window for new downloads** untuk membuka jendela progress otomatis.
 
-## 📸 Screenshots
+Konfigurasi updater saat ini masih mengarah ke rilis upstream. Untuk mempertahankan build
+pribadi, nonaktifkan pemeriksaan update otomatis melalui Settings dan hindari memasang
+update upstream sampai updater dikonfigurasi untuk rilis fork sendiri.
 
-| | |
-|---|---|
-| ![Download File dialog](docs/screenshots/download-file-dialog.png) | ![Video: MP4 or MP3](docs/screenshots/video-dialog.png) |
-| **Click a link** — Prism asks where to save it | **Grab a video** — MP4 + quality, or MP3 only |
-| ![Scheduler](docs/screenshots/scheduler.png) | ![Browser integration](docs/screenshots/settings-browser-integration.png) |
-| **Queues & scheduler** — download at night, then sleep | **Browser integration** — status and one-click repair |
-| ![Download complete](docs/screenshots/complete-dialog.png) | ![Mini window](docs/screenshots/mini-window.png) |
-| **Done** — open, show in folder, verify | **Mini window** — stays out of your way |
+### Extension browser
 
-## 📊 Benchmarks
+Perubahan fullscreen membutuhkan **extension hasil build fork ini**. Extension resmi dari
+Web Store tetap mengikuti perilaku versi resminya.
 
-Same files, same machine, every result verified by SHA-256
-([method & full results](docs/benchmarks.md)):
-
-| Scenario | curl (1 connection) | aria2c | **Prism** |
-|---|---|---|---|
-| 1 GiB from a server that throttles each connection | 4.0 MiB/s | 61.0 MiB/s | **60.9 MiB/s** |
-| 2 GiB, no network limit | 672 MiB/s | 324 MiB/s | **1029 MiB/s** |
-| Server allows only 4 connections | 2.0 MiB/s | 8.0 MiB/s | **8.0 MiB/s** (max) |
-| Server that randomly drops connections | — | ✘ gave up | **37.7 MiB/s** ✔ |
-| Real internet, ≈ 200 Mbit/s line | 25.9 MiB/s | 25.2 MiB/s | **25.1 MiB/s** (line speed) |
-
-## 🧠 How it works
-
-<p align="center">
-  <img src="docs/media/banner.jpg" width="860" alt="One beam, many rays">
-</p>
-
-* **Dynamic segmentation.** When a connection finishes its part, it takes over half of the
-  largest part still remaining — so every connection stays busy until the very end and the
-  slow tail gets split down instead of waiting on one slow socket.
-* **Server-aware.** Prism notices when a server refuses extra connections, settles on what it
-  allows and remembers it per host.
-* **Straight to disk.** Data is written at its final offset in a sparse part file (on
-  supported file systems) — no slow "assembling" step at the end.
-* **Crash-safe.** Progress is checkpointed only after data is flushed to disk; on resume Prism
-  validates size, ETag and Last-Modified with `If-Range`.
-* **Rust + Tauri.** A Rust engine (tokio, rustls), a React UI in a native Tauri 2 shell — small,
-  fast and memory-friendly.
-
-Deep dive: [ARCHITECTURE.md](ARCHITECTURE.md).
-
-## 🛠 Build from source
-
-```bash
-git clone https://github.com/FortoGraphy/prism-download-manager
-cd prism-download-manager
-npm ci --prefix app && npm ci --prefix extension
+```sh
+npm ci --prefix extension
 npm run build --prefix extension
-cd app && npm run tauri:build
 ```
 
-Prerequisites and platform notes: [BUILD.md](BUILD.md) (Windows, Linux) ·
-[docs/BUILD_MACOS.md](docs/BUILD_MACOS.md) (macOS).
+Untuk Chrome, Edge, Brave, dan browser Chromium lain:
+
+1. Hapus extension Prism yang terpasang terlebih dahulu; build fork masih memakai ID yang sama.
+2. Buka halaman extensions browser, lalu aktifkan **Developer mode**.
+3. Pilih **Load unpacked** dan arahkan ke `extension/build/chromium`.
+4. Jalankan aplikasi fork. Jika belum terhubung, buka **Settings → Browser integration → Repair**,
+   lalu restart browser.
+5. Setelah membangun ulang extension, reload extension dan tab video yang digunakan.
+
+Untuk uji sementara di Firefox, buka `about:debugging#/runtime/this-firefox`, pilih
+**Load Temporary Add-on**, lalu pilih `extension/build/firefox/manifest.json`.
+
+## Build installer Windows tanpa GitHub Actions
+
+Siapkan **Node.js 24 LTS**, **Rust stable ≥ 1.88 dengan toolchain MSVC**, serta
+**Visual Studio 2022 Build Tools** dengan komponen *Desktop development with C++* dan
+Windows SDK. Dari root checkout fork, jalankan di PowerShell Windows:
+
+```powershell
+npm ci --prefix app
+npm ci --prefix extension
+npm run build --prefix extension
+
+cd app
+npm run tauri:build -- --bundles nsis
+```
+
+Installer dihasilkan di:
 
 ```text
-crates/prism-engine       download engine: segmented HTTP/FTP, HLS/DASH, resume, speed limiter
-crates/prism-core         app logic: manager, SQLite, queues, scheduler, grabber, browser IPC
-crates/prism-video        yt-dlp / ffmpeg management, quality choices, muxing
-crates/prism-torrent      BitTorrent / magnet
-crates/prism-native-host  browser ↔ app bridge (native messaging) and browser registration
-crates/prism-testserver   configurable HTTP server for tests and benchmarks
-app/                      React UI + Tauri 2 shell
-extension/                MV3 extension (Chromium + Firefox)
-site/                     prismdl.site
+target\release\bundle\nsis\Prism_<versi>_x64-setup.exe
 ```
 
-## ❓ FAQ
+Build ini berjalan di komputer Windows sendiri dan tidak memakai menit GitHub Actions.
+Panduan platform lainnya: [BUILD.md](BUILD.md) dan [build macOS](docs/BUILD_MACOS.md).
 
-<details><summary><b>Is it really free?</b></summary>
+## Hasil pengujian perubahan
 
-Yes. MIT-licensed, no ads, no trial, no account, no telemetry. The extension talks only to
-the app on your own computer.
-</details>
+Validasi berikut dilakukan saat implementasi di cloud Linux:
 
-<details><summary><b>Windows / macOS says the app is unsafe.</b></summary>
+| Pemeriksaan | Hasil |
+| --- | --- |
+| Tes Rust untuk core, engine, dan torrent, termasuk doctest | 182 lolos |
+| Tes aplikasi | 73 lolos |
+| Tes extension | 57 lolos |
+| Clippy pada crate yang diubah dan format Rust | Lolos |
+| Pemeriksaan tipe TypeScript aplikasi dan extension | Lolos |
+| Build frontend dan extension Chromium/Firefox | Lolos |
+| Tes fullscreen Chromium | Container player, elemen video, dan iframe lintas domain lolos |
+| Pemeriksaan UI di browser | Dashboard, fallback route model yang dihapus, dan dialog capture lolos |
 
-The installers aren't signed with a paid certificate. The code is all here and every release
-is built by GitHub Actions from this repository, with `SHA256SUMS.txt` to verify your file.
-</details>
+Pemeriksaan shell Tauri terhenti karena library pengembangan GLib (`glib-2.0.pc`) belum
+tersedia di cloud. Build native, perilaku jendela Windows, dan reproduksi penggunaan disk
+NTFS **belum diverifikasi langsung**. Detail perintah tes ada di
+[catatan validasi](docs/FORK_CHANGES.md#validation-in-the-linux-cloud-workspace).
 
-<details><summary><b>Can I use it together with IDM or another download manager?</b></summary>
+## Fondasi dari proyek asli
 
-Yes, but disable their browser extension — two extensions fighting over the same download
-means neither works reliably.
-</details>
+Fork ini tetap memakai download engine Rust, UI React/Tauri, native messaging untuk
+integrasi browser, HTTP(S)/FTP, video dan stream, torrent/magnet, antrean, scheduler,
+serta fitur manajemen download dari Prism.
 
-<details><summary><b>Which sites can it download video from?</b></summary>
+Kredit pengembangan aplikasi asli tetap untuk **Jan Sechovec dan para kontributor Prism**.
+Lihat [repo upstream](https://github.com/FortoGraphy/prism-download-manager) untuk proyek
+aslinya dan [ARCHITECTURE.md](ARCHITECTURE.md) untuk arsitektur kode.
 
-Every site supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp), which Prism installs and
-keeps up to date for you (together with ffmpeg). Please download only content you have the
-right to download.
-</details>
+## Lisensi
 
-
-<details><summary><b>Does it work on Linux Flatpak/Snap browsers?</b></summary>
-
-Flatpak browsers can't talk to desktop apps (a sandbox limitation). Use the deb/rpm version of
-your browser for full integration.
-</details>
-
-## 🤝 Contributing
-
-Bug reports, ideas and pull requests are very welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
-If Prism saves you time, **a ⭐ on this repo helps more people find it.**
-
-<a href="https://star-history.com/#FortoGraphy/prism-download-manager&Date">
-  <img src="https://api.star-history.com/svg?repos=FortoGraphy/prism-download-manager&type=Date" width="600" alt="Star history">
-</a>
-
-## 📄 License
-
-[MIT](LICENSE) for Prism's own code. Bundled and downloaded components keep their own licenses —
-see [THIRD_PARTY.md](THIRD_PARTY.md).
-
-<sub>Prism is an independent project. It is not affiliated with, endorsed by or derived from
-Internet Download Manager or Tonec Inc.; all names are trademarks of their respective owners.</sub>
+Kode Prism memakai [lisensi MIT](LICENSE). Komponen pihak ketiga tetap mengikuti lisensi
+masing-masing; lihat [THIRD_PARTY.md](THIRD_PARTY.md).
