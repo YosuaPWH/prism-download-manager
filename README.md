@@ -1,208 +1,153 @@
 <p align="center">
-  <img src="assets/brand/png/app-icon-256.png" width="120" alt="Prism">
+  <img src="assets/brand/png/app-icon-256.png" width="100" alt="Prism">
 </p>
 
-<h1 align="center">Prism</h1>
+<h1 align="center">Prism — Personal Fork</h1>
 
 <p align="center">
-  <b>One beam. Many rays.</b><br>
-  The fast, beautiful, open-source download manager for Windows, macOS and Linux.
+  A personal fork by <a href="https://github.com/YosuaPWH">YosuaPWH</a> of
+  <a href="https://github.com/FortoGraphy/prism-download-manager">Prism Download Manager</a>.
+  Focused on video playback, download dialogs, and partial-file storage.
 </p>
 
-<p align="center">
-  <a href="https://github.com/FortoGraphy/prism-download-manager/releases/latest"><img alt="Latest release" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fprismdl.site%2Frelease.json&style=flat-square&cacheSeconds=300"></a>
-  <a href="https://github.com/FortoGraphy/prism-download-manager/releases"><img alt="Downloads" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fprismdl.site%2Fdownloads.json&style=flat-square&cacheSeconds=300"></a>
-  <a href="https://github.com/FortoGraphy/prism-download-manager/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fprismdl.site%2Ftests.json&style=flat-square&cacheSeconds=300"></a>
-  <a href="https://chromewebstore.google.com/detail/prism-download-manager/mmcdeiglkbfbicdjboocmhehodogilfl"><img alt="Chrome Web Store" src="https://img.shields.io/chrome-web-store/v/mmcdeiglkbfbicdjboocmhehodogilfl?style=flat-square&label=Chrome%20Web%20Store&color=4285f4"></a>
-  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2ecc71?style=flat-square"></a>
-  <img alt="Platforms" src="https://img.shields.io/badge/Windows%20·%20macOS%20·%20Linux-555?style=flat-square">
-</p>
+## Changes from the original application
 
-<p align="center">
-  <a href="https://github.com/FortoGraphy/prism-download-manager/releases/latest"><b>⬇ Download</b></a> ·
-  <a href="https://prismdl.site/"><b>Website</b></a> ·
-  <a href="https://youtu.be/IkZu0XN2lLQ"><b>▶ Watch the film</b></a> ·
-  <a href="docs/guide/installation.md">Install guide</a> ·
-  <a href="docs/guide/browser-extension.md">Browser extension</a> ·
-  <a href="https://ko-fi.com/prismdownloadmanager"><b>☕ Buy me a beam</b></a>
-</p>
+This comparison uses upstream **1.2.4**, commit
+[`60898a7`](https://github.com/FortoGraphy/prism-download-manager/commit/60898a726f38172559aa29836fb7940e81176eab),
+as its baseline.
 
-<p align="center">
-  <a href="https://youtu.be/IkZu0XN2lLQ">
-    <img src="docs/media/teaser.gif" width="860" alt="Prism in motion: one beam splits into many connections">
-  </a>
-</p>
+| Area | Original baseline behavior | Changes in this fork |
+| --- | --- | --- |
+| AI model downloads | A dedicated Hugging Face downloader for discovering models/datasets, selecting files, and using access tokens. | Remove the dedicated feature from the UI, settings, API, and special URL handling. |
+| Video button during fullscreen | The button can appear inside a fullscreen player container. | Hide the button and quality menu during fullscreen, including fullscreen containers around cross-origin iframes. Restore availability on a fresh hover after exiting fullscreen. |
+| Download dialogs | Dialog requests can be missed during startup or when the event receiver falls behind. A failed dialog open can start the download immediately with default settings. | Reconcile pending requests every two seconds and retry missing windows. Keep a failed dialog request pending for user confirmation. |
+| Progress windows | Disabled by default; a failed window open can be recorded as already handled. | Enable progress windows by default for new profiles and retry failed opens. Preserve existing profiles' saved preferences. |
+| HTTP/FTP partial-file storage | Closing the writer, including on pause/error, clears the sparse flag on Windows. Linux reserves space using `fallocate`. | Keep the sparse flag when closing and reapply it on resume. Use sparse sizing on Unix so missing ranges are not allocated in advance. |
 
----
+Closing a dialog through Cancel, **Alt+F4**, or the taskbar also cancels its pending request,
+so reconciliation does not reopen it. Periodic reconciliation does not refocus dialogs that
+are already open.
 
-Prism splits every download into up to **32 parallel connections**, keeps them all busy until
-the last byte, and survives crashes, sleep and pulled cables. Click a link in your browser and
-Prism takes over; hover a video and grab it as **MP4 in the quality you want — or just the MP3**.
-All of it in a calm, liquid-glass interface with dark and light themes.
+Removing the dedicated AI model downloader preserves existing download history and queues.
+Direct model-file URLs can still be downloaded through the general downloader.
 
-Free, open source, no ads, no accounts, no telemetry.
+For technical analysis and detailed verification steps, see
+[docs/FORK_CHANGES.md](docs/FORK_CHANGES.md).
 
-## ✨ Why Prism
+## Addressing upstream issue #70
 
-| | |
-|---|---|
-| ⚡ **Up to 15× faster** | On servers that throttle each connection, Prism's multi-connection engine is up to 15× faster than a normal browser download ([benchmarks](#-benchmarks)). |
-| 🔁 **Never start over** | Pause, close the laptop, lose power — Prism resumes exactly where it stopped and checks that the file on the server hasn't changed. |
-| 🌐 **Lives in your browser** | Chrome, Edge, Brave, Opera, Vivaldi and Firefox. Downloads jump into Prism in about a quarter of a second. |
-| 🎬 **Video & music** | YouTube and [1,800+ sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md): MP4 up to 8K/HDR or MP3 only, with subtitles, chapters and SponsorBlock. |
-| 🧲 **Every protocol** | HTTP(S), FTP/FTPS, HLS and DASH streams, BitTorrent and magnet links. |
-| 🗂 **Organised** | Categories, queues with schedules and speed limits, "shut down when done", site grabber, batch downloads, clipboard monitor. |
-| 🌍 **Your language** | English, Czech, German, Spanish, French, Italian, Indonesian, Turkish, Simplified Chinese and Arabic. Prism follows your system's language, or pick one in Settings. |
-| 🎨 **Gorgeous** | Liquid-glass design, dark & light themes, six accent colours, a mini window — and fast with thousands of downloads. |
+[Issue #70](https://github.com/FortoGraphy/prism-download-manager/issues/70) reports heavy
+disk writes continuing after a download is paused or cancelled on Windows.
 
-<p align="center">
-  <img src="docs/screenshots/details-window.png" width="820" alt="Prism download details: 16 live connections, file map and speed graph">
-</p>
+This fork fixes the HTTP/FTP path that cleared the sparse flag when closing a partial file.
+Clearing that flag can cause missing ranges to be allocated. Received data is still flushed
+for a durable resume point, so pausing may briefly wait for buffered writes to finish.
 
-## ⬇ Download
+Verification scope:
 
-Grab the file for your system from the **[latest release](https://github.com/FortoGraphy/prism-download-manager/releases/latest)**:
+- Linux tests confirm that a file with a logical size of **10 GB**, containing only a few
+  received bytes, remains sparse after the writer closes.
+- Torrents use **librqbit's** separate storage implementation. Its offline pause/delete test
+  passes on Linux; the same sparse-flag-clearing path was not found there.
+- The Windows/NTFS reproduction and Windows torrent symptoms still require direct testing.
+  These changes do not establish that every symptom in the report is resolved.
+- Filesystems without sparse support, such as FAT/exFAT, retain their filesystem-dependent
+  allocation behavior. Reapplying sparse on resume does not reclaim space already allocated
+  by an older build.
 
-| System | File |
-|---|---|
-| **Windows** 10 / 11 | `Prism_<version>_x64-setup.exe` — recommended, no admin rights needed<br>`…_x64_en-US.msi` for all users · `…-windows-x64-portable.zip` for USB sticks |
-| **macOS** 11+ Apple Silicon | `Prism_<version>_aarch64.dmg` |
-| **macOS** 11+ Intel | `Prism_<version>_x64.dmg` |
-| **Ubuntu / Debian / Mint** | `Prism_<version>_amd64.deb` |
-| **Fedora / openSUSE** | `Prism-<version>-1.x86_64.rpm` |
-| **Any Linux** | `Prism_<version>_amd64.AppImage` |
+## Using this fork's enhancements
 
-> **First start:** the installers are not code-signed (certificates cost money).
-> Windows: *More info → Run anyway*. macOS: run `xattr -dr com.apple.quarantine /Applications/Prism.app`
-> once (or *System Settings → Privacy & Security → Open Anyway*).
-> Step-by-step for every system: **[Installation guide](docs/guide/installation.md)**.
+### Desktop application
 
-## 🌐 Browser extension (1 minute)
+Build the application from a checkout containing this fork's changes. Upstream release
+installers and binaries contain the original project's code.
 
-**[Add Prism from the Chrome Web Store](https://chromewebstore.google.com/detail/prism-download-manager/mmcdeiglkbfbicdjboocmhehodogilfl)**
-— Chrome, Edge, Brave, Opera, Vivaldi and Helium. Click **Add to Chrome**, pin the Prism icon, and it
-says **Connected**. The store keeps it up to date.
+For existing profiles, open **Settings → General → Windows** and enable these as needed:
 
-Prism also walks you through this on first start (and any time from **Settings → Browser
-integration**). Firefox, Edge/Opera notes, troubleshooting and privacy details:
-**[Browser extension guide](docs/guide/browser-extension.md)**.
+- **Show the Download File dialog** to choose a save location and confirm each download.
+- **Open a progress window for new downloads** to open progress windows automatically.
 
-## 📸 Screenshots
+The updater configuration still points to upstream releases. To keep a personal build,
+disable automatic update checks in Settings and avoid installing upstream updates until
+the updater is configured for this fork's own releases.
 
-| | |
-|---|---|
-| ![Download File dialog](docs/screenshots/download-file-dialog.png) | ![Video: MP4 or MP3](docs/screenshots/video-dialog.png) |
-| **Click a link** — Prism asks where to save it | **Grab a video** — MP4 + quality, or MP3 only |
-| ![Scheduler](docs/screenshots/scheduler.png) | ![Browser integration](docs/screenshots/settings-browser-integration.png) |
-| **Queues & scheduler** — download at night, then sleep | **Browser integration** — status and one-click repair |
-| ![Download complete](docs/screenshots/complete-dialog.png) | ![Mini window](docs/screenshots/mini-window.png) |
-| **Done** — open, show in folder, verify | **Mini window** — stays out of your way |
+### Browser extension
 
-## 📊 Benchmarks
+The fullscreen changes require **an extension built from this fork**. The official Web Store
+extension retains the behavior of its published version.
 
-Same files, same machine, every result verified by SHA-256
-([method & full results](docs/benchmarks.md)):
-
-| Scenario | curl (1 connection) | aria2c | **Prism** |
-|---|---|---|---|
-| 1 GiB from a server that throttles each connection | 4.0 MiB/s | 61.0 MiB/s | **60.9 MiB/s** |
-| 2 GiB, no network limit | 672 MiB/s | 324 MiB/s | **1029 MiB/s** |
-| Server allows only 4 connections | 2.0 MiB/s | 8.0 MiB/s | **8.0 MiB/s** (max) |
-| Server that randomly drops connections | — | ✘ gave up | **37.7 MiB/s** ✔ |
-| Real internet, ≈ 200 Mbit/s line | 25.9 MiB/s | 25.2 MiB/s | **25.1 MiB/s** (line speed) |
-
-## 🧠 How it works
-
-<p align="center">
-  <img src="docs/media/banner.jpg" width="860" alt="One beam, many rays">
-</p>
-
-* **Dynamic segmentation.** When a connection finishes its part, it takes over half of the
-  largest part still remaining — so every connection stays busy until the very end and the
-  slow tail gets split down instead of waiting on one slow socket.
-* **Server-aware.** Prism notices when a server refuses extra connections, settles on what it
-  allows and remembers it per host.
-* **Straight to disk.** Data is written at its final offset in a sparse part file (on
-  supported file systems) — no slow "assembling" step at the end.
-* **Crash-safe.** Progress is checkpointed only after data is flushed to disk; on resume Prism
-  validates size, ETag and Last-Modified with `If-Range`.
-* **Rust + Tauri.** A Rust engine (tokio, rustls), a React UI in a native Tauri 2 shell — small,
-  fast and memory-friendly.
-
-Deep dive: [ARCHITECTURE.md](ARCHITECTURE.md).
-
-## 🛠 Build from source
-
-```bash
-git clone https://github.com/FortoGraphy/prism-download-manager
-cd prism-download-manager
-npm ci --prefix app && npm ci --prefix extension
+```sh
+npm ci --prefix extension
 npm run build --prefix extension
-cd app && npm run tauri:build
 ```
 
-Prerequisites and platform notes: [BUILD.md](BUILD.md) (Windows, Linux) ·
-[docs/BUILD_MACOS.md](docs/BUILD_MACOS.md) (macOS).
+For Chrome, Edge, Brave, and other Chromium browsers:
+
+1. Remove the installed Prism extension first; this fork's build retains the same ID.
+2. Open the browser's extensions page and enable **Developer mode**.
+3. Select **Load unpacked** and choose `extension/build/chromium`.
+4. Start the forked application. If it does not connect, open
+   **Settings → Browser integration → Repair**, then restart the browser.
+5. After rebuilding the extension, reload it and the video tabs you are using.
+
+For temporary testing in Firefox, open `about:debugging#/runtime/this-firefox`, select
+**Load Temporary Add-on**, and choose `extension/build/firefox/manifest.json`.
+
+## Building a Windows installer without GitHub Actions
+
+Install **Node.js 24 LTS**, **Rust stable ≥ 1.88 with the MSVC toolchain**, and
+**Visual Studio 2022 Build Tools** with *Desktop development with C++* and the Windows SDK.
+From the root of your fork checkout, run these commands in Windows PowerShell:
+
+```powershell
+npm ci --prefix app
+npm ci --prefix extension
+npm run build --prefix extension
+
+cd app
+npm run tauri:build -- --bundles nsis
+```
+
+The installer is generated at:
 
 ```text
-crates/prism-engine       download engine: segmented HTTP/FTP, HLS/DASH, resume, speed limiter
-crates/prism-core         app logic: manager, SQLite, queues, scheduler, grabber, browser IPC
-crates/prism-video        yt-dlp / ffmpeg management, quality choices, muxing
-crates/prism-torrent      BitTorrent / magnet
-crates/prism-native-host  browser ↔ app bridge (native messaging) and browser registration
-crates/prism-testserver   configurable HTTP server for tests and benchmarks
-app/                      React UI + Tauri 2 shell
-extension/                MV3 extension (Chromium + Firefox)
-site/                     prismdl.site
+target\release\bundle\nsis\Prism_<version>_x64-setup.exe
 ```
 
-## ❓ FAQ
+This build runs on your own Windows computer and does not consume GitHub Actions minutes.
+For other platforms, see [BUILD.md](BUILD.md) and the [macOS build guide](docs/BUILD_MACOS.md).
 
-<details><summary><b>Is it really free?</b></summary>
+## Validation results
 
-Yes. MIT-licensed, no ads, no trial, no account, no telemetry. The extension talks only to
-the app on your own computer.
-</details>
+The following checks ran during implementation in the Linux cloud workspace:
 
-<details><summary><b>Windows / macOS says the app is unsafe.</b></summary>
+| Check | Result |
+| --- | --- |
+| Rust tests for core, engine, and torrent, including the doctest | 182 passed |
+| Application tests | 73 passed |
+| Extension tests | 57 passed |
+| Clippy for the affected crates and Rust formatting | Passed |
+| Application and extension TypeScript checks | Passed |
+| Frontend and Chromium/Firefox extension builds | Passed |
+| Chromium fullscreen regressions | Player container, video element, and cross-origin iframe passed |
+| Browser UI smoke test | Dashboard, removed-model-route fallback, and capture dialog passed |
 
-The installers aren't signed with a paid certificate. The code is all here and every release
-is built by GitHub Actions from this repository, with `SHA256SUMS.txt` to verify your file.
-</details>
+The Tauri shell check was blocked by missing GLib development files (`glib-2.0.pc`) in the
+cloud environment. Native builds, Windows window behavior, and the original NTFS disk-usage
+reproduction **have not been verified directly**. For the exact test commands, see the
+[validation notes](docs/FORK_CHANGES.md#validation-in-the-linux-cloud-workspace).
 
-<details><summary><b>Can I use it together with IDM or another download manager?</b></summary>
+## Foundation from the original project
 
-Yes, but disable their browser extension — two extensions fighting over the same download
-means neither works reliably.
-</details>
+This fork retains Prism's Rust download engine, React/Tauri UI, native messaging for browser
+integration, HTTP(S)/FTP downloads, video and streaming support, torrents/magnet links,
+queues, scheduler, and download management features.
 
-<details><summary><b>Which sites can it download video from?</b></summary>
+Credit for the original application belongs to **Jan Sechovec and the Prism contributors**.
+See the [upstream repository](https://github.com/FortoGraphy/prism-download-manager) for the
+original project and [ARCHITECTURE.md](ARCHITECTURE.md) for the code architecture.
 
-Every site supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp), which Prism installs and
-keeps up to date for you (together with ffmpeg). Please download only content you have the
-right to download.
-</details>
+## License
 
-
-<details><summary><b>Does it work on Linux Flatpak/Snap browsers?</b></summary>
-
-Flatpak browsers can't talk to desktop apps (a sandbox limitation). Use the deb/rpm version of
-your browser for full integration.
-</details>
-
-## 🤝 Contributing
-
-Bug reports, ideas and pull requests are very welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
-If Prism saves you time, **a ⭐ on this repo helps more people find it.**
-
-<a href="https://star-history.com/#FortoGraphy/prism-download-manager&Date">
-  <img src="https://api.star-history.com/svg?repos=FortoGraphy/prism-download-manager&type=Date" width="600" alt="Star history">
-</a>
-
-## 📄 License
-
-[MIT](LICENSE) for Prism's own code. Bundled and downloaded components keep their own licenses —
-see [THIRD_PARTY.md](THIRD_PARTY.md).
-
-<sub>Prism is an independent project. It is not affiliated with, endorsed by or derived from
-Internet Download Manager or Tonec Inc.; all names are trademarks of their respective owners.</sub>
+Prism's own code is licensed under [MIT](LICENSE). Third-party components retain their
+respective licenses; see [THIRD_PARTY.md](THIRD_PARTY.md).
