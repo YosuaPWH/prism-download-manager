@@ -1,6 +1,6 @@
 # Personal fork changes
 
-These notes describe the initial fork enhancements. For the subsequent review and its
+These notes describe the fork enhancements. For the subsequent review and its
 additional fixes, see [CODE_AUDIT.md](CODE_AUDIT.md).
 
 ## Model downloads
@@ -31,6 +31,32 @@ To use this behavior, build and load **this fork's extension**, not the unchange
 copy. Run `npm run build --prefix extension`, remove the installed Prism extension (the
 build retains its ID), then Load unpacked from `extension/build/chromium`. After rebuilding,
 reload the extension and affected video tabs.
+
+## Dismiss a video's download button
+
+The hover overlay now includes a separate **X** button. Clicking it closes the download
+button and any open quality menu for that video/post until the page is reloaded. Scrolling,
+resizing and hovering again do not undo the choice. Other posts retain their download buttons.
+The X supports keyboard activation, and hidden controls are removed from the focus order.
+
+Dismissal uses the post's canonical link when available, so it survives a feed rerender or
+quality change. Otherwise it uses the media source, with a weak element reference for
+players that have no source yet. Reusing a video element for a new post/source does not
+automatically hide the new video. Choices remain in memory for the current page lifetime;
+no browser storage or application download history is changed.
+
+The browser's **Download with Prism** context-menu action can still download a hidden video;
+for blob players it opens the quality menu without clearing the hover dismissal. Reloading
+the page restores the buttons. Fullscreen suppression continues to take priority over
+requests to display the overlay. Late quality responses from a closed menu are ignored, so
+they cannot replace another video's menu.
+
+Run the real Chromium regressions without the native application:
+
+```sh
+npm run e2e:dismiss --prefix extension
+npm run e2e:fullscreen --prefix extension
+```
 
 ## Download windows
 
