@@ -20,6 +20,7 @@ as its baseline.
 | --- | --- | --- |
 | AI model downloads | A dedicated Hugging Face downloader for discovering models/datasets, selecting files, and using access tokens. | Remove the dedicated feature from the UI, settings, API, and special URL handling. |
 | Video button during fullscreen | The button can appear inside a fullscreen player container. | Hide the button and quality menu during fullscreen, including fullscreen containers around cross-origin iframes. Restore availability on a fresh hover after exiting fullscreen. |
+| Dismiss video download button | The hover button has no close control and can cover post text or menus. | Add an X to hide it for that video/post until the page is reloaded. Preserve dismissal across post rerenders, keep other videos available, and allow explicit use through the browser context menu. |
 | Download dialogs | Dialog requests can be missed during startup or when the event receiver falls behind. A failed dialog open can start the download immediately with default settings. | Reconcile pending requests every two seconds and retry missing windows. Keep a failed dialog request pending for user confirmation. |
 | Progress windows | Disabled by default; a failed window open can be recorded as already handled. | Enable progress windows by default for new profiles and retry failed opens. Preserve existing profiles' saved preferences. |
 | HTTP/FTP partial-file storage | Closing the writer, including on pause/error, clears the sparse flag on Windows. Linux reserves space using `fallocate`. | Keep the sparse flag when closing and reapply it on resume. Use sparse sizing on Unix so missing ranges are not allocated in advance. |
@@ -93,8 +94,12 @@ the updater is configured for this fork's own releases.
 
 ### Browser extension
 
-The fullscreen changes require **an extension built from this fork**. The official Web Store
+The fullscreen and dismiss-button changes require **an extension built from this fork**. The official Web Store
 extension retains the behavior of its published version.
+
+Hover a video and click **X** beside **Download** to hide the overlay for that video/post
+until the page is reloaded. Other videos keep their buttons. To download a hidden video,
+use the browser's **Download with Prism** context-menu action, or reload the page.
 
 ```sh
 npm ci --prefix extension
@@ -150,6 +155,7 @@ The following checks ran during implementation in the Linux cloud workspace:
 | Application and extension TypeScript checks | Passed |
 | Frontend and Chromium/Firefox extension builds | Passed |
 | Chromium fullscreen regressions | Player container, video element, and cross-origin iframe passed |
+| Chromium dismissal regressions | Per-post dismissal, feed rerenders, recycled players, keyboard activation, reload, context-menu access, and stale quality responses passed |
 | Browser UI smoke test | Dashboard, removed-model-route fallback, and capture dialog passed |
 | Chromium/native-host integration with a mock desktop backend | 15/15 passed |
 
